@@ -424,7 +424,7 @@ function actualizarDatosHermano(datos) {
     }
 
     if (fechaNacHermanoStr) {
-      const grupoAsignado = determinarGrupoPorFecha(fechaNacHermanoStr);
+      const grupoAsignado = obtenerGrupoPorFechaNacimiento(fechaNacHermanoStr);
       hojaRegistro.getRange(fila, COL_GRUPOS).setValue(grupoAsignado); // I
       aplicarColorGrupo(hojaRegistro, fila, grupoAsignado, hojaConfig);
     }

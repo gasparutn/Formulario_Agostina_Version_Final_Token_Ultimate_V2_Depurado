@@ -10,12 +10,10 @@
 
     document.getElementById('btn-validar').addEventListener('click', function () {
       const dni = document.getElementById('dni-input').value;
-      const tipo = document.getElementById('tipoInscripto').value;
       if (!dni) {
         document.getElementById('status-validacion').innerHTML = '<div class="mensaje error">Por favor, ingrese un DNI.</div>';
         return;
       }
-      // (Validación Punto 35)
       if (!/^[0-9]{8}$/.test(dni)) {
         document.getElementById('status-validacion').innerHTML = '<div class="mensaje error">Error: El DNI debe tener exactamente 8 dígitos numéricos.</div>';
         return;
@@ -26,7 +24,7 @@
       google.script.run
         .withSuccessHandler(handleValidationSuccess)
         .withFailureHandler(handleValidationFailure)
-        .validarAcceso(dni, tipo);
+        .validarAcceso(dni);
     });
 
     document.getElementById('fotoCarnet').addEventListener('change', function () {
@@ -221,6 +219,22 @@
           return validationFail('Error: Debe ingresar al menos una persona autorizada (Nombre y DNI).', primerInputVacio);
         }
 
+        // --- 1b. Validación Responsable 2 (Opcional) ---
+        const adultoResp2Input = document.getElementById('adultoResponsable2');
+        const dniResp2Input = document.getElementById('dniResponsable2');
+        const adultoResp2 = adultoResp2Input.value.trim();
+        const dniResp2 = dniResp2Input.value.trim();
+
+        if (adultoResp2 && !dniResp2) {
+          return validationFail('Error: Debe completar el DNI del Responsable 2.', dniResp2Input);
+        }
+        if (!adultoResp2 && dniResp2) {
+          return validationFail('Error: Debe completar el Nombre y Apellido del Responsable 2.', adultoResp2Input);
+        }
+        if (dniResp2 && !/^[0-9]{8}$/.test(dniResp2)) {
+          return validationFail('Error: El DNI del Responsable 2 debe tener exactamente 8 dígitos numéricos.', dniResp2Input);
+        }
+
         // --- 2. Validación 'Especifique' ---
         if (document.querySelector('input[name="practicaDeporte"]:checked')?.value === 'Sí' && !document.getElementById('especifiqueDeporte').value) {
           return validationFail('Debe especificar qué deporte practica.', document.getElementById('especifiqueDeporte'));
@@ -296,7 +310,6 @@
         }
 
         // --- 5. Recolección de Datos Faltantes ---
-        formDataObject.tipoInscripto = document.getElementById('tipoInscripto').value;
         formDataObject.esHermanoCompletando = (document.getElementById('esHermanoCompletando').value === "true");
         formDataObject.urlCertificadoAptitud = document.getElementById('urlCertificadoAptitud').value;
         formDataObject.urlFotoCarnet = document.getElementById('urlFotoCarnet').value;
@@ -407,16 +420,13 @@
     // --- ¡¡INICIO DE LA CORRECCIÓN DEL BUCLE!! ---
     // =========================================================
     const autoDNI = localStorage.getItem('autoValidateDNI');
-    const autoType = localStorage.getItem('autoValidateType');
 
-    if (autoDNI && autoType) {
+    if (autoDNI) {
       // 1. Borrar las claves inmediatamente para detener el bucle
       localStorage.removeItem('autoValidateDNI');
-      localStorage.removeItem('autoValidateType');
 
       // 2. Rellenar los campos
       document.getElementById('dni-input').value = autoDNI;
-      document.getElementById('tipoInscripto').value = autoType;
 
       // 3. Mostrar el loader
       document.getElementById('btn-validar').disabled = true;
@@ -429,7 +439,7 @@
         google.script.run
           .withSuccessHandler(handleValidationSuccess)
           .withFailureHandler(handleValidationFailure)
-          .validarAcceso(autoDNI, autoType);
+          .validarAcceso(autoDNI);
       }, 500); // 500ms
 
     } else {

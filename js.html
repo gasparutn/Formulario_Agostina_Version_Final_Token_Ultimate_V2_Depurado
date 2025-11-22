@@ -1,4 +1,193 @@
 <script>
+  // Variable global para controlar el refresco silencioso
+  window.isSilentRefresh = false;
+
+  function handleValidationSuccess(response) {
+    document.getElementById('btn-validar').disabled = false;
+    document.getElementById('loader-validacion').style.display = 'none';
+
+    // Si es un refresco silencioso (ej. post-upload), saltamos el modal de notificación
+    if (window.isSilentRefresh) {
+      console.log("Refresco silencioso completado (Modal suprimido).");
+      window.isSilentRefresh = false; // Reset flag
+      processValidationResponse(response);
+      return;
+    }
+
+    if (response.status.startsWith('OK') || response.status === 'REGISTRO_ENCONTRADO' || response.status === 'HERMANO_COMPLETAR') {
+      const notificacionContainer = document.getElementById('notificacion-container');
+      const notificacionTitulo = document.getElementById('notificacion-titulo');
+      const notificacionMensaje = document.getElementById('notificacion-mensaje');
+
+      const nombre = (response.datos && response.datos.nombre) ? response.datos.nombre : '';
+      const apellido = (response.datos && response.datos.apellido) ? response.datos.apellido : '';
+
+      let mensaje = '';
+      let titulo = '¡Hola!';
+
+      switch (response.sourceDB) {
+        case 'Pre-Venta':
+          titulo = 'Cupo Pre-Venta Encontrado';
+          mensaje = `Hemos encontrado en nuestra Base de Datos un cupo Pre-venta otorgado: <br><br>
+                           Nombres: <strong>${nombre}</strong>.<br>
+                           Apellidos: <strong>${apellido}</strong>.<br><br>
+                           Se procederá a la apertura del formulario. Recuerde completar todas las instancias del registro. Gracias!!!<br>
+                           <span class="abriendo-texto">Abriendo formulario…!!!</span>`;
+          break;
+        case 'Nuevo Inscripto':
+          titulo = 'Nuevo Registro';
+          mensaje = `Tus datos no se encuentran en nuestras Bases de Datos de años anteriores ni en la Pre-Venta que se realizó el 20/10/25.<br><br>
+                           Se abrirá el formulario para completar todos datos de su hijo/a e incluyendo hemanos.<br>
+                           Muchas Gracias!!!<br>
+                           <span class="abriendo-texto">Abriendo formulario…!!!</span>`;
+          break;
+        case 'Inscriptos Anteriores':
+          titulo = 'Registro Anterior Encontrado';
+          mensaje = `Hemos encontrado en nuestra Base de Datos del año anterior al siguiente inscripto/a:<br><br>
+                           Nombres: <strong>${nombre}</strong>.<br>
+                           Apellidos: <strong>${apellido}</strong>.<br><br>
+                           Se procederá a la apertura del formulario. Recuerde completar todas las instancias del registro. Gracias!!!<br>
+                           <span class="abriendo-texto">Abriendo formulario…!!!</span>`;
+          break;
+        default:
+          titulo = `¡Hola, ${nombre} ${apellido}!`;
+          mensaje = `Hemos encontrado tus datos en: <strong>${response.sourceDB}</strong>. <br>Redireccionando...`;
+      }
+      notificacionTitulo.textContent = titulo;
+      notificacionMensaje.innerHTML = mensaje;
+
+      notificacionContainer.style.display = 'flex';
+      setTimeout(() => {
+        notificacionContainer.classList.add('visible');
+      }, 10);
+
+      setTimeout(() => {
+        notificacionContainer.classList.remove('visible');
+        setTimeout(() => {
+          notificacionContainer.style.display = 'none';
+          processValidationResponse(response);
+        }, 300);
+      }, 5000);
+    } else {
+      processValidationResponse(response);
+    }
+  }
+
+  // ... (resto del código) ...
+
+  function handleComprobanteUploadSuccess(response) {
+    const statusDiv = document.getElementById('status-validacion');
+    const fileInputComprobante = document.getElementById('comprobante-manual-upload');
+    const btnSubmitComprobante = document.getElementById('btn-submit-comprobante-manual');
+    const btnFinalizar = document.getElementById('btn-finalizar-upload');
+    const loaderComprobante = document.getElementById('loader-comprobante');
+
+    const submitButton = document.getElementById('btn-submit-comprobante-manual');
+    if (submitButton && submitButton.dataset.progressInterval) {
+      clearInterval(parseInt(submitButton.dataset.progressInterval));
+    }
+
+    const progressContainer = document.getElementById('progress-container-comprobante');
+    const progressBar = document.getElementById('progress-bar-comprobante');
+
+    if (progressBar) {
+      progressBar.style.width = '100%';
+      progressBar.textContent = '100%';
+      progressBar.style.backgroundColor = '#28a745'; // Green for success
+    }
+
+    if (progressContainer) {
+      setTimeout(() => {
+        progressContainer.style.display = 'none';
+      }, 500); // Wait half a second before hiding
+    }
+
+    loaderComprobante.style.display = 'none'; // Ensure spinner is hidden
+    statusDiv.querySelectorAll('.mensaje').forEach(el => {
+      // No borrar el mensaje de 'adeuda aptitud'
+      if (el.closest && !el.closest('#aptitud-manual-seccion')) {
+        el.remove();
+      } else if (!el.closest) {
+        el.remove();
+      }
+    });
+
+    if (response.status === 'OK') {
+      // --- INICIO DE LA MODIFICACIÓN (ASYNC OCR + SILENT REFRESH ROBUSTO) ---
+      // Mostrar mensaje de éxito inmediato
+      statusDiv.insertAdjacentHTML('afterbegin', `<div class="mensaje exito" style="margin-bottom:10px;">${response.message}</div>`);
+
+      // Si el servidor nos devuelve datos para OCR, lanzamos el proceso en segundo plano
+      if (response.fileId) {
+        console.log("Iniciando OCR asíncrono...", response);
+        // Mostrar un indicador visual discreto de que se está analizando
+        const loaderValidacion = document.getElementById('loader-validacion');
+        if (loaderValidacion) {
+          loaderValidacion.style.display = 'block';
+          loaderValidacion.querySelector('p').textContent = 'Analizando comprobante con IA... (Puede cerrar esta ventana)';
+        }
+
+        // Llamada asíncrona al OCR
+        google.script.run
+          .withSuccessHandler(function (resOCR) {
+            console.log("OCR Finalizado:", resOCR);
+
+            // Una vez terminado el OCR, refrescamos la validación para mostrar los colores
+            const dni = document.getElementById('dni-input').value;
+
+            // Usamos un wrapper para asegurar que el flag se mantenga
+            window.isSilentRefresh = true;
+            google.script.run
+              .withSuccessHandler(function (resp) {
+                window.isSilentRefresh = true; // Reforzar flag justo antes de llamar al handler
+                handleValidationSuccess(resp);
+              })
+              .withFailureHandler(handleValidationFailure)
+              .validarAcceso(dni);
+          })
+          .withFailureHandler(function (err) {
+            console.error("Error en OCR Async:", err);
+            // Incluso si falla el OCR, refrescamos para mostrar el error en la celda (amarillo)
+            const dni = document.getElementById('dni-input').value;
+            window.isSilentRefresh = true;
+            google.script.run
+              .withSuccessHandler(function (resp) {
+                window.isSilentRefresh = true;
+                handleValidationSuccess(resp);
+              })
+              .validarAcceso(dni);
+          })
+          .procesarOCRAsync(response.fileId, response.fila, response.precioEsperado, response.esFamiliar, response.filasFamiliares);
+      } else {
+        console.warn("No se requiere OCR (sin fileId). Respuesta:", response);
+        // Si no hay OCR (ej. no se requería), refrescamos directo
+        setTimeout(() => {
+          const dni = document.getElementById('dni-input').value;
+          window.isSilentRefresh = true;
+          google.script.run
+            .withSuccessHandler(function (resp) {
+              window.isSilentRefresh = true;
+              handleValidationSuccess(resp);
+            })
+            .withFailureHandler(handleValidationFailure)
+            .validarAcceso(dni);
+        }, 2000);
+      }
+
+      // Ocultar la sección de subida de comprobante
+      const comprobanteSection = document.getElementById('comprobante-manual-seccion');
+      if (comprobanteSection) {
+        comprobanteSection.style.display = 'none';
+      }
+      // --- FIN DE LA MODIFICACIÓN ---
+
+    } else { // Si response.status es 'ERROR'
+      statusDiv.insertAdjacentHTML('afterbegin', `<div class="mensaje error" style="margin-bottom:10px;">${response.message}</div>`);
+      if (btnSubmitComprobante) btnSubmitComprobante.disabled = false;
+      if (fileInputComprobante) fileInputComprobante.disabled = false;
+      if (btnFinalizar) btnFinalizar.disabled = false;
+    }
+  }
   // =========================================================
   // ARCHIVO: js.html
   // Lógica Principal, Handlers del Servidor y Orquestación
@@ -114,7 +303,6 @@
     document.querySelectorAll('.btn-completar-hermano').forEach(btn => {
       btn.addEventListener('click', function () {
         localStorage.setItem('autoValidateDNI', this.dataset.dni);
-        localStorage.setItem('autoValidateType', this.dataset.tipo);
         window.top.location.href = APP_URL;
       });
     });
@@ -185,10 +373,7 @@
   * - Corrige bug 'undefined undefined' usando `response.datos.nombre` y `apellido`.
   * - (MODIFICADO) Muestra la casilla "familiar" y corrige la lógica de habilitación.
   */
-  function handleValidationSuccess(response) {
-
-
-    document.getElementById('btn-validar').disabled = false;
+  function processValidationResponse(response) {
     document.getElementById('loader-validacion').style.display = 'none';
     const statusDiv = document.getElementById('status-validacion');
     if (response.datos) datosEdicionGlobales = response.datos;
@@ -197,12 +382,13 @@
       statusDiv.innerHTML = `<div class="mensaje aviso" style="text-align: left;">${response.message}</div>`;
       document.getElementById('esHermanoCompletando').value = "true";
       if (document.getElementById('seccion-hermanos')) document.getElementById('seccion-hermanos').style.display = 'none';
-      iniciarTemporizador(response);
-    } else if (response.status === 'OK_PREVENTA' || response.status === 'OK' || response.status === 'OK_NUEVO') {
-      document.getElementById('status-validacion').innerHTML = '<div class="mensaje exito">Estado OK recibido. Iniciando temporizador...</div>';
+      // Directamente mostrar el formulario, saltando el temporizador para mayor robustez.
+      mostrarFormulario(response);
+    } else if (response.status === 'OK_PREVENTA' || response.status === 'OK_ANTERIOR' || response.status === 'OK_NUEVO') {
       document.getElementById('esHermanoCompletando').value = "false";
       if (document.getElementById('seccion-hermanos')) document.getElementById('seccion-hermanos').style.display = 'block';
-      iniciarTemporizador(response);
+      // Directamente mostrar el formulario, saltando el temporizador para mayor robustez.
+      mostrarFormulario(response);
     } else if (response.status === 'REGISTRO_ENCONTRADO') {
       let html = '';
 
@@ -809,10 +995,6 @@
       document.getElementById('btn-edit-add-autorizado').addEventListener('click', () => addAutorizadoCamposEdicion());
       document.getElementById('edit-aptitud-upload').addEventListener('change', manejarSubidaAptitudEdicion);
       document.getElementById('btn-guardar-cambios').addEventListener('click', submitDatosEditados);
-      if (mostrarModalAlFinal) {
-        document.getElementById('loader-validacion').style.display = 'none';
-        mostrarModalCompleto(modalTitulo, modalMensaje);
-      }
     } else {
       statusDiv.innerHTML = `<div class="mensaje error"><strong>Aviso:</strong> ${response.message}</div>`;
     }
@@ -1380,14 +1562,13 @@
 
             // Disparar la re-validación
             const dni = document.getElementById('dni-input').value;
-            const tipo = document.getElementById('tipoInscripto').value;
             document.getElementById('loader-validacion').style.display = 'block';
             document.getElementById('loader-validacion').querySelector('p').textContent = 'Actualizando estado...';
 
             google.script.run
               .withSuccessHandler(handleValidationSuccess) // Llama al handler principal
               .withFailureHandler(handleValidationFailure)
-              .validarAcceso(dni, tipo);
+              .validarAcceso(dni);
             // =========================================================
             // --- FIN DE LA MODIFICACIÓN ---
             // =========================================================
@@ -1492,32 +1673,54 @@
     });
 
     if (response.status === 'OK') {
-      // --- INICIO DE LA MODIFICACIÓN ---
-      // Mostrar mensaje de éxito y forzar una re-validación completa para refrescar el estado.
+      // --- INICIO DE LA MODIFICACIÓN (ASYNC OCR) ---
+      // Mostrar mensaje de éxito inmediato
       statusDiv.insertAdjacentHTML('afterbegin', `<div class="mensaje exito" style="margin-bottom:10px;">${response.message}</div>`);
 
-      // Disparar la re-validación para actualizar toda la sección de estado de pago.
-      const dni = document.getElementById('dni-input').value;
-      const tipo = document.getElementById('tipoInscripto').value;
-      const loaderValidacion = document.getElementById('loader-validacion');
+      // Si el servidor nos devuelve datos para OCR, lanzamos el proceso en segundo plano
+      if (response.fileId) {
+        console.log("Iniciando OCR asíncrono...");
+        // Mostrar un indicador visual discreto de que se está analizando
+        const loaderValidacion = document.getElementById('loader-validacion');
+        if (loaderValidacion) {
+          loaderValidacion.style.display = 'block';
+          loaderValidacion.querySelector('p').textContent = 'Analizando comprobante con IA... (Puede cerrar esta ventana)';
+        }
 
-      if (loaderValidacion) {
-        loaderValidacion.style.display = 'block';
-        loaderValidacion.querySelector('p').textContent = 'Actualizando estado de pagos...';
+        // Llamada asíncrona al OCR
+        google.script.run
+          .withSuccessHandler(function (resOCR) {
+            console.log("OCR Finalizado:", resOCR);
+            // Una vez terminado el OCR, refrescamos la validación para mostrar los colores
+            const dni = document.getElementById('dni-input').value;
+            google.script.run
+              .withSuccessHandler(handleValidationSuccess)
+              .withFailureHandler(handleValidationFailure)
+              .validarAcceso(dni);
+          })
+          .withFailureHandler(function (err) {
+            console.error("Error en OCR Async:", err);
+            // Incluso si falla el OCR, refrescamos para mostrar el error en la celda (amarillo)
+            const dni = document.getElementById('dni-input').value;
+            google.script.run.withSuccessHandler(handleValidationSuccess).validarAcceso(dni);
+          })
+          .procesarOCRAsync(response.fileId, response.fila, response.precioEsperado, response.esFamiliar, response.filasFamiliares);
+      } else {
+        // Si no hay OCR (ej. no se requería), refrescamos directo
+        setTimeout(() => {
+          const dni = document.getElementById('dni-input').value;
+          google.script.run
+            .withSuccessHandler(handleValidationSuccess)
+            .withFailureHandler(handleValidationFailure)
+            .validarAcceso(dni);
+        }, 2000);
       }
 
-      // Ocultar la sección de subida de comprobante mientras se actualiza
+      // Ocultar la sección de subida de comprobante
       const comprobanteSection = document.getElementById('comprobante-manual-seccion');
       if (comprobanteSection) {
         comprobanteSection.style.display = 'none';
       }
-
-      setTimeout(() => {
-        google.script.run
-          .withSuccessHandler(handleValidationSuccess) // El handler principal que redibuja todo
-          .withFailureHandler(handleValidationFailure)
-          .validarAcceso(dni, tipo);
-      }, 3000); // 3 segundos de retraso para leer el mensaje.
       // --- FIN DE LA MODIFICACIÓN ---
 
     } else { // Si response.status es 'ERROR'
@@ -1590,6 +1793,7 @@
       }
 
       document.getElementById('adultoResponsable2').value = response.datos.adultoResponsable2 || '';
+      document.getElementById('dniResponsable2').value = response.datos.dniResponsable2 || '';
       if (response.datos.telResponsable2) {
         const telMatch2 = String(response.datos.telResponsable2).match(/\(?(\d{2,5})\)?\s?(\d+)/);
         if (telMatch2) {

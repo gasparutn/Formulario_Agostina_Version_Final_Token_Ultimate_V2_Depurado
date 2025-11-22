@@ -29,27 +29,25 @@ function subirComprobanteManual(
 
   try {
     const dniLimpio = limpiarDNI(dni);
-    if (
-      !dniLimpio ||
-      !fileData ||
-      !cuotasSeleccionadas ||
-      cuotasSeleccionadas.length === 0
-    ) {
-      return {
-        status: "ERROR",
-        message: "Faltan datos (DNI, archivo o tipo de comprobante).",
-      };
+    const validacionComprobante = validarDatosComprobante(
+      dniLimpio,
+      fileData,
+      cuotasSeleccionadas
+    );
+    if (!validacionComprobante.esValido) {
+      return { status: "ERROR", message: validacionComprobante.mensaje };
     }
-    if (!datosExtras || !datosExtras.nombrePagador || !datosExtras.dniPagador) {
-      return {
-        status: "ERROR",
-        message: "Faltan los datos del adulto pagador (Nombre o DNI).",
-      };
+
+    const validacionPagador = validarDatosPagador(datosExtras);
+    if (!validacionPagador.esValido) {
+      return { status: "ERROR", message: validacionPagador.mensaje };
     }
-    if (!/^[0-9]{8}$/.test(datosExtras.dniPagador)) {
+
+    const validacionFormatoDni = validarFormatoDni(datosExtras.dniPagador);
+    if (!validacionFormatoDni.esValido) {
       return {
         status: "ERROR",
-        message: "El DNI del pagador debe tener 8 dígitos.",
+        message: `${validacionFormatoDni.mensaje} (Pagador)`,
       };
     }
 
@@ -164,21 +162,9 @@ function subirComprobanteManual(
           const comp2 = rangoFila[COL_COMPROBANTE_MANUAL_CUOTA2 - 1];
           const comp3 = rangoFila[COL_COMPROBANTE_MANUAL_CUOTA3 - 1];
 
-          if (pagandoC1 && comp1 && String(comp1).trim() !== "") {
-            throw new Error(
-              "La Cuota 1 ya tiene un comprobante registrado. No se puede volver a pagar."
-            );
-          }
-          if (pagandoC2 && comp2 && String(comp2).trim() !== "") {
-            throw new Error(
-              "La Cuota 2 ya tiene un comprobante registrado. No se puede volver a pagar."
-            );
-          }
-          if (pagandoC3 && comp3 && String(comp3).trim() !== "") {
-            throw new Error(
-              "La Cuota 3 ya tiene un comprobante registrado. No se puede volver a pagar."
-            );
-          }
+          validarComprobanteExistente(pagandoC1, comp1, 1);
+          validarComprobanteExistente(pagandoC2, comp2, 2);
+          validarComprobanteExistente(pagandoC3, comp3, 3);
         }
         if (
           metodoPago === "Pago en Cuotas" &&
@@ -498,19 +484,69 @@ function subirComprobanteManual(
       Logger.log(`Nuevo nombre de archivo: ${nuevoNombreArchivo}`);
 
       // --- 5. Subir el Archivo ---
-      const fileUrl = uploadFileToDrive(
+      // --- 5. Subir el Archivo ---
+      const resultadoUpload = uploadFileToDrive(
         fileData.data,
         fileData.mimeType,
         nuevoNombreArchivo,
         dniLimpio,
         "comprobante"
       );
-      if (typeof fileUrl !== "string" || !fileUrl.startsWith("=HYPERLINK")) {
+
+      if (resultadoUpload.status === "ERROR") {
         throw new Error(
           "Error al subir el archivo a Drive: " +
-            (fileUrl.message || "Error desconocido")
+          (resultadoUpload.message || "Error desconocido")
         );
       }
+
+      const fileUrl = resultadoUpload.formula;
+      const fileId = resultadoUpload.fileId;
+
+      // --- (INICIO IA) Preparación para Validación Asíncrona ---
+      // Calculamos el precio esperado y si es familiar para pasarlo al cliente
+      let precioEsperadoIA = rangoFilaPrincipal[COL_PRECIO - 1]; // Default: precio individual
+      let filasFamiliares = [];
+
+      try {
+        // Lógica para Pago Familiar: Sumar precios de todos los vinculados
+        if (esPagoFamiliar) {
+          const idFamiliar = rangoFilaPrincipal[COL_VINCULO_PRINCIPAL - 1]; // Col AR
+          if (idFamiliar) {
+            // Buscar todas las filas con este vínculo
+            const rangoVinculos = hoja.getRange(
+              2,
+              COL_VINCULO_PRINCIPAL,
+              hoja.getLastRow() - 1,
+              1
+            );
+            const filasFamilia = rangoVinculos
+              .createTextFinder(idFamiliar)
+              .matchEntireCell(true)
+              .findAll();
+
+            if (filasFamilia.length > 0) {
+              let sumaFamiliar = 0;
+              filasFamilia.forEach((celda) => {
+                const f = celda.getRow();
+                filasFamiliares.push(f);
+                // Leer precio de cada hermano (Col AF)
+                const precioH = hoja.getRange(f, COL_PRECIO).getValue();
+                if (typeof precioH === "number") {
+                  sumaFamiliar += precioH;
+                }
+              });
+
+              if (sumaFamiliar > 0) {
+                precioEsperadoIA = sumaFamiliar;
+              }
+            }
+          }
+        }
+      } catch (eIA) {
+        Logger.log("[IA] Error calculando precio esperado: " + eIA.toString());
+      }
+      // --- (FIN IA PREPARACIÓN) ---
 
       let mensajeAlerta = "";
       // VALIDACIÓN DE MÉTODO DE PAGO
@@ -545,9 +581,8 @@ function subirComprobanteManual(
               <h3>Detalles de la Inconsistencia:</h3>
               <ul>
                 <li><b>Método de Pago (Registro Original):</b> ${subMetodoOriginal}</li>
-                <li><b>Método de Pago (Actual):</b> ${
-                  datosExtras.subMetodo
-                }</li>
+                <li><b>Método de Pago (Actual):</b> ${datosExtras.subMetodo
+              }</li>
               </ul>
               <p><b>Comprobante subido:</b></p>
               <p>Para ver el comprobante, copie y pegue la siguiente URL en su navegador (si no es un enlace directo):</p>
@@ -571,8 +606,7 @@ function subirComprobanteManual(
             Logger.log("Email de alerta enviado exitosamente.");
           } catch (e) {
             Logger.log(
-              `Error al intentar enviar el email de alerta: ${e.toString()} - Stack: ${
-                e.stack
+              `Error al intentar enviar el email de alerta: ${e.toString()} - Stack: ${e.stack
               }`
             );
           }
@@ -882,8 +916,7 @@ function subirComprobanteManual(
           });
 
           Logger.log(
-            `Pago Familiar aplicado a ${
-              nombresActualizados.length
+            `Pago Familiar aplicado a ${nombresActualizados.length
             } miembros: ${nombresActualizados.join(", ")}`
           );
 
@@ -919,9 +952,8 @@ function subirComprobanteManual(
             resultadoPrincipal.pagadasCount;
 
           if (pendientes > 0) {
-            mensajeExito += ` Le quedan ${pendientes} cuota${
-              pendientes > 1 ? "s" : ""
-            } pendiente${pendientes > 1 ? "s" : ""}.`;
+            mensajeExito += ` Le quedan ${pendientes} cuota${pendientes > 1 ? "s" : ""
+              } pendiente${pendientes > 1 ? "s" : ""}.`;
           } else {
             mensajeExito = `¡Felicidades! Ha completado todas las cuotas.<br>${mensajeFinalCompleto}`;
           }
@@ -1030,7 +1062,7 @@ function subirComprobanteManual(
       } catch (e) {
         Logger.log(
           "Error recalculando familiaPagos al final de subirComprobanteManual: " +
-            e.toString()
+          e.toString()
         );
         // Si todo falla, al menos enviar el estado del principal para evitar el error de 'undefined'
         familiaPagos[dniLimpio] = {
@@ -1040,6 +1072,10 @@ function subirComprobanteManual(
         };
       }
 
+      // --- (FIN DE PROCESO) Aplicar resultados de IA ---
+      // Se hace al final para asegurar que sobreescriba cualquier cálculo previo de _actualizarMontoAcumulado
+
+
       return {
         status: "OK",
         message: mensajeExito,
@@ -1048,22 +1084,115 @@ function subirComprobanteManual(
         cuotasPagadas: cuotasPagadasFinalP, // (CORRECCIÓN) El nombre de la propiedad debe ser 'cuotasPagadas'
         familiaPagos: familiaPagos, // (CORRECCIÓN) Añadir el estado de la familia para el refresco de la UI
         cuotasPendientes: pendientesByCompP,
+        // Datos para OCR Async:
+        fileId: fileId,
+        fila: fila,
+        precioEsperado: precioEsperadoIA,
+        esFamiliar: esPagoFamiliar,
+        filasFamiliares: filasFamiliares.length > 0 ? filasFamiliares : null
       };
     } else {
       Logger.log(
         `No se encontró DNI ${dniLimpio} para subir comprobante manual.`
       );
-      return {
-        status: "ERROR",
-        message: `No se encontró el registro para el DNI ${dniLimpio}. Asegúrese de que el DNI del inscripto sea correcto.`,
-      };
+      throw new Error(
+        "No se encontró el registro para el DNI: " + dniLimpio
+      );
     }
-  } catch (e) {
-    Logger.log(
-      "Error en subirComprobanteManual: " + e.toString() + " Stack: " + e.stack
-    );
-    return { status: "ERROR", message: "Error en el servidor: " + e.message };
+  } catch (error) {
+    Logger.log("Error en subirComprobanteManual: " + error.toString());
+    return { status: "ERROR", message: error.toString() };
   } finally {
     lock.releaseLock();
+  }
+}
+
+/**
+ * Función asíncrona para procesar el OCR después de que el archivo ya se subió.
+ * Se llama desde el cliente (js.html) tras recibir el OK de subirComprobanteManual.
+ */
+function procesarOCRAsync(fileId, fila, precioEsperado, esFamiliar, filasFamiliares) {
+  Logger.log(`[OCR Async] Iniciando para fila ${fila}, FileId: ${fileId}`);
+
+  try {
+    const hoja = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName("Registros");
+
+    // Validación y recuperación de datos
+    if (!fileId) {
+      hoja.getRange(fila, COL_MONTO_A_PAGAR).setValue("Error: Sin ID Archivo");
+      return { status: 'NO_FILE_ID' };
+    }
+
+    // Si no llega precioEsperado, intentamos leerlo de nuevo de la hoja
+    if (!precioEsperado) {
+      const precioLeido = hoja.getRange(fila, COL_PRECIO).getValue();
+      if (typeof precioLeido === 'number' && precioLeido > 0) {
+        precioEsperado = precioLeido;
+        Logger.log(`[OCR Async] Precio recuperado de hoja: ${precioEsperado}`);
+      } else {
+        hoja.getRange(fila, COL_MONTO_A_PAGAR).setValue("Error: Sin Precio Esperado");
+        return { status: 'NO_PRICE' };
+      }
+    }
+
+    // 1. Ejecutar OCR
+    const resultadoIA = analizarComprobanteIA(fileId, precioEsperado);
+
+    // 2. Determinar filas a actualizar
+    let filasAActualizar = [fila];
+    if (esFamiliar && filasFamiliares && filasFamiliares.length > 0) {
+      filasAActualizar = filasFamiliares;
+    }
+
+    // 3. Aplicar resultados a la hoja
+    filasAActualizar.forEach(f => {
+      const celdaAL = hoja.getRange(f, COL_MONTO_A_PAGAR);
+
+      if (resultadoIA.exito) {
+        // Leer el precio esperado de ESTA fila específica
+        const precioEsperadoFila = hoja.getRange(f, COL_PRECIO).getValue();
+
+        // Normalizar el precio esperado de esta fila
+        let precioNormalizadoFila = typeof precioEsperadoFila === 'string'
+          ? parseFloat(precioEsperadoFila.replace(/\./g, '').replace(',', '.'))
+          : precioEsperadoFila;
+
+        // Comparar el monto por persona del OCR con el precio esperado de ESTA fila
+        const diferencia = Math.abs(resultadoIA.montoPorPersona - precioNormalizadoFila);
+        const coincideEstaFila = diferencia <= 1;
+
+        Logger.log(`[OCR Async] Fila ${f}: MontoPorPersona=${resultadoIA.montoPorPersona}, PrecioEsperado=${precioNormalizadoFila}, Diferencia=${diferencia}, Coincide=${coincideEstaFila}`);
+
+        // Escribir monto detectado
+        if (resultadoIA.textoEncontrado) {
+          celdaAL.setValue(resultadoIA.textoEncontrado);
+        }
+
+        // Colorear según coincidencia INDIVIDUAL
+        if (coincideEstaFila) {
+          celdaAL.setBackground("#b6d7a8"); // Verde
+        } else {
+          celdaAL.setBackground("#ea9999"); // Rojo
+        }
+      } else {
+        // Fallo OCR
+        celdaAL.setBackground("#fff2cc"); // Amarillo
+        celdaAL.setValue(resultadoIA.error || "Error OCR Desconocido");
+      }
+    });
+
+    return { status: 'OK_OCR', resultado: resultadoIA };
+
+  } catch (e) {
+    Logger.log("[OCR Async] Error fatal: " + e.toString());
+    try {
+      // Intentar reportar el error fatal en la celda si es posible
+      const hoja = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName("Registros");
+      hoja.getRange(fila, COL_MONTO_A_PAGAR).setValue("Error Fatal OCR: " + e.message);
+      hoja.getRange(fila, COL_MONTO_A_PAGAR).setBackground("#fff2cc");
+    } catch (e2) {
+      Logger.log("No se pudo escribir el error en la hoja: " + e2.toString());
+    }
+    return { status: 'ERROR_OCR', message: e.message };
   }
 }

@@ -1012,4 +1012,114 @@
   .checkbox-option input[type="checkbox"] {
     margin-right: 10px;
   }
+
+  /* --- Estilos para el nuevo contenedor de notificación --- */
+  #notificacion-container {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.7);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 2000;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+  }
+
+  .notificacion-contenido {
+    background: #ffffff;
+    padding: 30px 40px;
+    border-radius: 12px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+    text-align: center;
+    transform: scale(0.9);
+    transition: transform 0.3s ease;
+    width: 90%;
+    max-width: 450px;
+  }
+
+  #notificacion-container.visible {
+    opacity: 1;
+  }
+
+  #notificacion-container.visible .notificacion-contenido {
+    transform: scale(1);
+  }
+
+  #notificacion-titulo {
+    font-size: 1.5em;
+    color: var(--color-principal);
+    margin-bottom: 10px;
+    background-color: transparent;
+  }
+
+  #notificacion-mensaje {
+    font-size: 1.1em;
+    color: var(--color-texto);
+    margin-bottom: 20px;
+    text-align: center;
+  }
+
+  .notificacion-timer {
+    position: relative;
+    height: 5px;
+    background-color: #e9ecef;
+    border-radius: 5px;
+    overflow: hidden;
+  }
+
+  .notificacion-timer::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 100%;
+    width: 100%;
+    background-color: var(--color-exito);
+    animation: timer-anim 5s linear forwards;
+  }
+
+  @keyframes timer-anim {
+    from {
+      width: 100%;
+    }
+    to {
+      width: 0%;
+    }
+  }
+
+  .abriendo-texto {
+    font-size: 0.9em;
+    display: block;
+    margin-top: 25px;
+    margin-bottom: -10px;
+  }
+
+
+
+  /* Ajuste de ancho para campos de teléfono y autorizados */
+  .grupo-telefono {
+    display: grid;
+    grid-template-columns: 1fr 3fr; /* Proporción para Codigo de area (chico) y telefono (grande) */
+    gap: 10px;
+    align-items: center;
+    margin-bottom: 15px;
+  }
+
+  .campos-dinamicos {
+    display: grid;
+    grid-template-columns: 2fr 1fr; /* Proporción para Nombre (grande) y DNI (chico) */
+    gap: 10px;
+    align-items: center;
+  }
+
+  /* Anula el ancho y margen por defecto para los inputs dentro de la grilla */
+  .grupo-telefono input,
+  .campos-dinamicos input {
+    width: 100% !important; /* Usa !important para sobreescribir otros estilos */
+    margin-bottom: 0;
+  }
 </style>

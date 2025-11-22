@@ -40,12 +40,9 @@ function generarYEnviarToken(dni) {
     const emailResponsable = hojaRegistro.getRange(fila, COL_EMAIL).getValue();
     const nombreInscripto = hojaRegistro.getRange(fila, COL_NOMBRE).getValue();
 
-    if (!emailResponsable || !emailResponsable.includes("@")) {
-      return {
-        status: "ERROR",
-        message:
-          "No se encontró un email válido para este registro. Por favor, contacte a la administración.",
-      };
+    const validacionEmail = validarEmail(emailResponsable);
+    if (!validacionEmail.esValido) {
+      return { status: "ERROR", message: validacionEmail.mensaje };
     }
 
     // Generar token numérico de 6 dígitos
