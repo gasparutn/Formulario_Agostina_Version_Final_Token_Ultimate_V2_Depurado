@@ -6,6 +6,12 @@
 
   document.addEventListener('DOMContentLoaded', () => {
 
+    // Forzar ocultación de loader-certificado si existe (por caché del navegador)
+    const loaderCertificado = document.getElementById('loader-certificado');
+    if (loaderCertificado) {
+      loaderCertificado.remove(); // Eliminar completamente del DOM
+    }
+
     // --- INICIO DE LISTENERS MOVIDOS ---
 
     document.getElementById('btn-validar').addEventListener('click', function () {

@@ -2025,7 +2025,7 @@
     let progressInterval;
 
     if (progressContainer && progressBar) {
-      loader.style.display = 'none';
+      if (loader) loader.style.display = 'none';
       progressContainer.style.display = 'block';
       progressBar.style.width = '0%';
       progressBar.textContent = '0%';
@@ -2042,14 +2042,18 @@
         }
       }, 150);
     } else {
-      loader.className = 'loader-archivo';
-      loader.style.display = 'block';
-      loader.textContent = 'Iniciando...';
+      if (loader) {
+        loader.className = 'loader-archivo';
+        loader.style.display = 'block';
+        loader.textContent = 'Iniciando...';
+      }
     }
 
     comprimirYLeerArchivo(file).then(fileData => {
       if (!progressContainer) {
-        loader.textContent = 'Subiendo archivo...';
+        if (loader) {
+          loader.textContent = 'Subiendo archivo...';
+        }
       }
       google.script.run
         .withSuccessHandler(function (response) {
@@ -2068,13 +2072,17 @@
                 nombreLabel.textContent = file.name + ' (✅ Subido)';
               }, 500);
             } else {
-              loader.className = 'loader-archivo exito';
-              loader.textContent = '✅ Archivo subido con éxito.';
+              if (loader) {
+                loader.className = 'loader-archivo exito';
+                loader.textContent = '✅ Archivo subido con éxito.';
+              }
             }
           } else {
             if (progressContainer) progressContainer.style.display = 'none';
-            loader.className = 'loader-archivo error';
-            loader.textContent = `❌ Error: ${response.message}`;
+            if (loader) {
+              loader.className = 'loader-archivo error';
+              loader.textContent = `❌ Error: ${response.message}`;
+            }
             inputElement.value = '';
             nombreLabel.textContent = 'Ningún archivo seleccionado';
           }
@@ -2085,8 +2093,10 @@
           if (progressInterval) clearInterval(progressInterval);
           if (progressContainer) progressContainer.style.display = 'none';
 
-          loader.className = 'loader-archivo error';
-          loader.textContent = `❌ Error de conexión: ${error.message}`;
+          if (loader) {
+            loader.className = 'loader-archivo error';
+            loader.textContent = `❌ Error de conexión: ${error.message}`;
+          }
           inputElement.value = '';
           nombreLabel.textContent = 'Ningún archivo seleccionado';
         })
