@@ -87,5 +87,5 @@ const COL_PREVENTA_GUARDA = 9; // Col I
 // =========================================================
 // CONSTANTES GEMINI AI
 // =========================================================
-const GEMINI_API_KEY = "AIzaSyC_dW30ZJzaAt1dwvneSg9WSpV1HRuUHUg";
+const GEMINI_API_KEY = "********************************************";
 const GEMINI_MODEL = "gemini-2.5-flash";
