@@ -21,13 +21,17 @@
   }
 
   .grupo-telefono .telefono-area-code {
-    width: 20%;
+    width: 90px;
+    /* Ancho fijo para ~6 dígitos */
+    flex-shrink: 0;
+    /* No permitir que se encoja */
     margin-bottom: 0;
     /* Anular margen inferior */
   }
 
   .grupo-telefono .telefono-numero {
-    flex-grow: 2;
+    flex: 1;
+    /* Ocupar todo el espacio restante */
     margin-bottom: 0;
     /* Anular margen inferior */
   }
@@ -88,7 +92,7 @@
     cursor: pointer;
     font-size: 0.9em;
     margin-top: 10px;
-    transition: background-color: 0.3s;
+    transition: background-color 0.3s;
   }
 
   #btn-copiar-alias:hover,

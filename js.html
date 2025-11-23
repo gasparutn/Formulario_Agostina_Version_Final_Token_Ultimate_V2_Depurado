@@ -6,68 +6,177 @@
     document.getElementById('btn-validar').disabled = false;
     document.getElementById('loader-validacion').style.display = 'none';
 
-    // Si es un refresco silencioso (ej. post-upload), saltamos el modal de notificación
+    // Si es un refresco silencioso (ej. post-upload), saltamos la animación
     if (window.isSilentRefresh) {
-      console.log("Refresco silencioso completado (Modal suprimido).");
-      window.isSilentRefresh = false; // Reset flag
+      console.log("Refresco silencioso completado (Animación suprimida).");
+      window.isSilentRefresh = false;
       processValidationResponse(response);
       return;
     }
 
+    // Mostrar mensaje de bienvenida inline con barra de progreso
     if (response.status.startsWith('OK') || response.status === 'REGISTRO_ENCONTRADO' || response.status === 'HERMANO_COMPLETAR') {
-      const notificacionContainer = document.getElementById('notificacion-container');
-      const notificacionTitulo = document.getElementById('notificacion-titulo');
-      const notificacionMensaje = document.getElementById('notificacion-mensaje');
+      const statusDiv = document.getElementById('status-validacion');
+      const nombre = response.datos?.nombre || '';
+      const apellido = response.datos?.apellido || '';
 
-      const nombre = (response.datos && response.datos.nombre) ? response.datos.nombre : '';
-      const apellido = (response.datos && response.datos.apellido) ? response.datos.apellido : '';
-
+      let titulo = '';
       let mensaje = '';
-      let titulo = '¡Hola!';
+      let mostrarEstado = false;
 
-      switch (response.sourceDB) {
-        case 'Pre-Venta':
-          titulo = 'Cupo Pre-Venta Encontrado';
-          mensaje = `Hemos encontrado en nuestra Base de Datos un cupo Pre-venta otorgado: <br><br>
-                           Nombres: <strong>${nombre}</strong>.<br>
-                           Apellidos: <strong>${apellido}</strong>.<br><br>
-                           Se procederá a la apertura del formulario. Recuerde completar todas las instancias del registro. Gracias!!!<br>
-                           <span class="abriendo-texto">Abriendo formulario…!!!</span>`;
-          break;
-        case 'Nuevo Inscripto':
-          titulo = 'Nuevo Registro';
-          mensaje = `Tus datos no se encuentran en nuestras Bases de Datos de años anteriores ni en la Pre-Venta que se realizó el 20/10/25.<br><br>
-                           Se abrirá el formulario para completar todos datos de su hijo/a e incluyendo hemanos.<br>
-                           Muchas Gracias!!!<br>
-                           <span class="abriendo-texto">Abriendo formulario…!!!</span>`;
-          break;
-        case 'Inscriptos Anteriores':
-          titulo = 'Registro Anterior Encontrado';
-          mensaje = `Hemos encontrado en nuestra Base de Datos del año anterior al siguiente inscripto/a:<br><br>
-                           Nombres: <strong>${nombre}</strong>.<br>
-                           Apellidos: <strong>${apellido}</strong>.<br><br>
-                           Se procederá a la apertura del formulario. Recuerde completar todas las instancias del registro. Gracias!!!<br>
-                           <span class="abriendo-texto">Abriendo formulario…!!!</span>`;
-          break;
-        default:
-          titulo = `¡Hola, ${nombre} ${apellido}!`;
-          mensaje = `Hemos encontrado tus datos en: <strong>${response.sourceDB}</strong>. <br>Redireccionando...`;
+      // Determinar si es un registro ya existente (Registros Actuales)
+      const esRegistroActual = response.sourceDB === 'Registros Actuales';
+
+      if (esRegistroActual) {
+        // Usuario ya registrado - Mostrar estado detallado
+
+        // Determinar estados
+        const inscripto = true; // Si está en Registros Actuales, está inscripto
+        const adeudaCertificado = response.adeudaAptitud === true;
+        const adeudaComprobantes = response.comprobantesCompletos === false;
+        const estaCompleto = !adeudaCertificado && !adeudaComprobantes;
+
+        // Título con fondo verde flúor y negrita
+        titulo = `<div style="background-color: #b6d7a8; padding: 10px; border-radius: 5px; margin-bottom: 15px;"><strong>¡Hola, ${nombre} ${apellido}!</strong></div>`;
+
+        // Si no adeuda nada, mostrar mensaje de felicitaciones
+        if (estaCompleto) {
+          mensaje = `<strong>¡Felicitaciones! Tu inscripción está completa.</strong><br><br>
+                     ✅ <strong>Inscripto/a:</strong> SÍ<br>
+                     ✅ <strong>Certificado de Aptitud Física:</strong> Presentado<br>
+                     ✅ <strong>Comprobantes de Pago:</strong> Completos<br><br>
+                     <strong>¡Nos vemos en la colonia!</strong>`;
+        } else {
+          // Mostrar estado con lo que falta
+          mensaje = `<strong>Tus datos están en nuestra Base de Datos, tu situación de registro es:</strong><br><br>
+                     ✅ <strong>Inscripto/a:</strong> SÍ<br>
+                     ${adeudaCertificado
+              ? '❌ <strong>Adeuda Certificado de Aptitud Física:</strong> SÍ'
+              : '✅ <strong>Certificado de Aptitud Física:</strong> Presentado'}<br>
+                     ${adeudaComprobantes
+              ? '❌ <strong>Adeuda Comprobantes de Pago:</strong> SÍ'
+              : '✅ <strong>Comprobantes de Pago:</strong> Completos'}<br><br>
+                     ${(adeudaCertificado || adeudaComprobantes)
+              ? '<strong>Por favor, complete la documentación faltante para confirmar su inscripción.</strong>'
+              : ''}`;
+        }
+        mostrarEstado = true;
+
+        // Crear HTML del mensaje con barra de progreso
+        const mensajeProgreso = estaCompleto ? 'Cerrando formulario...' : 'Apertura de datos...';
+
+        statusDiv.innerHTML = `
+          <div class="mensaje exito" style="background-color: #fff9c4; border: 2px solid #fbc02d; border-radius: 8px; text-align: center; padding: 20px;">
+            ${titulo}
+            <p style="color: #333; margin-bottom: 20px; line-height: 1.6; text-align: left;">${mensaje}</p>
+            <p style="font-weight: bold; color: #f57c00; margin-bottom: 10px;">${mensajeProgreso}</p>
+            <div style="width: 100%; background-color: #e0e0e0; border-radius: 10px; overflow: hidden; height: 20px;">
+              <div id="progress-bar-validation" style="width: 0%; height: 100%; background: linear-gradient(90deg, #4CAF50, #8BC34A); transition: width 0.1s linear;"></div>
+            </div>
+          </div>
+        `;
+
+        // Animar barra de progreso (6 segundos)
+        let progress = 0;
+        const progressBar = document.getElementById('progress-bar-validation');
+        const interval = setInterval(() => {
+          progress += 1.67; // 100% en 6 segundos (60 iteraciones * 100ms)
+          if (progress >= 100) {
+            progress = 100;
+            clearInterval(interval);
+            // Después de completar
+            setTimeout(() => {
+              if (estaCompleto) {
+                // Si está completo, mostrar mensaje final sin botón
+                statusDiv.innerHTML = `
+                  <div class="mensaje exito" style="background-color: #fff9c4; border: 2px solid #fbc02d; border-radius: 8px; text-align: center; padding: 30px;">
+                    <h3 style="color: white; background-color: #4CAF50; padding: 15px; border-radius: 8px; margin-bottom: 20px;">✅ ¡Inscripción Completa!</h3>
+                    <p style="color: #333; margin-bottom: 20px; font-size: 18px; line-height: 1.8;">
+                      <strong>¡Felicitaciones!</strong><br>
+                      Tu inscripción está completa y confirmada.<br>
+                      ¡Nos vemos en la colonia!
+                    </p>
+                  </div>
+                `;
+              } else {
+                // Si falta algo, mostrar el formulario
+                processValidationResponse(response);
+              }
+            }, 300);
+          }
+          progressBar.style.width = progress + '%';
+        }, 100);
+
+        return; // Salir aquí para evitar ejecutar el código de abajo
+      } else {
+        // Nuevos registros o Pre-venta
+        switch (response.sourceDB) {
+          case 'Preventa':
+            titulo = 'Registro de Preventa Encontrado';
+            mensaje = `Hemos encontrado en nuestra Base de Datos de Preventa al siguiente inscripto/a:<br><br>
+                       Nombres: <strong style="color: #d32f2f;">${nombre}</strong>.<br>
+                       Apellidos: <strong style="color: #d32f2f;">${apellido}</strong>.<br><br>
+                       Se abrirá el formulario para completar todos los datos de su hijo/a, incluyendo hermanos.<br>
+                       Recuerde completar todas las instancias del registro y cargar los comprobantes de pago para que la inscripción esté confirmada.<br>
+                       ¡Muchas gracias!`;
+            break;
+          case 'Inscriptos Anteriores':
+            titulo = 'Registro Anterior Encontrado';
+            mensaje = `Hemos encontrado en nuestra Base de Datos del año anterior al siguiente inscripto/a:<br><br>
+                       Nombres: <strong style="color: #d32f2f;">${nombre}</strong>.<br>
+                       Apellidos: <strong style="color: #d32f2f;">${apellido}</strong>.<br><br>
+                       Se procederá a la apertura del formulario. Recuerde completar todas las instancias del registro y cargar los comprobantes de pago para que la inscripción esté confirmada.<br>
+                       ¡Muchas gracias!`;
+            break;
+          case 'Nuevo Inscripto':
+            // Título simple sin div interno
+            titulo = 'Nuevo Registro';
+            mensaje = `<div style="line-height: 1.0; text-align: center;"><strong>No se encuentra el DNI en nuestras bases de datos.</strong><br><br>
+                       Por favor, complete todos los datos del formulario y cargue los comprobantes de pago para que la inscripción esté confirmada.<br><br>
+                       <strong>¡Muchas gracias!</strong></div>`;
+            mostrarEstado = false; // Centrado
+            break;
+          default:
+            titulo = `¡Hola, <strong style="color: #d32f2f;">${nombre} ${apellido}</strong>!`;
+            mensaje = `Hemos encontrado tus datos en: <strong>${response.sourceDB}</strong>.<br><br>
+                       Recuerde completar todas las instancias del registro y cargar los comprobantes de pago para que la inscripción esté confirmada.<br>
+                       ¡Muchas gracias!`;
+        }
       }
-      notificacionTitulo.textContent = titulo;
-      notificacionMensaje.innerHTML = mensaje;
 
-      notificacionContainer.style.display = 'flex';
-      setTimeout(() => {
-        notificacionContainer.classList.add('visible');
-      }, 10);
+      // Crear HTML del mensaje con barra de progreso
+      statusDiv.innerHTML = `
+        <div class="mensaje exito" style="background-color: #fff9c4; border: 2px solid #fbc02d; border-radius: 8px; text-align: center; padding: 20px;">
+          <h3 style="color: ${response.sourceDB === 'Nuevo Inscripto' ? 'white' : '#f57c00'}; 
+                     background-color: ${response.sourceDB === 'Nuevo Inscripto' ? '#2196F3' : 'transparent'}; 
+                     padding: ${response.sourceDB === 'Nuevo Inscripto' ? '15px' : '0'}; 
+                     border-radius: ${response.sourceDB === 'Nuevo Inscripto' ? '5px' : '0'}; 
+                     margin-bottom: 15px; 
+                     font-size: ${response.sourceDB === 'Nuevo Inscripto' ? '20px' : '1.5em'};">${titulo}</h3>
+          <p style="color: #333; margin-bottom: 20px; line-height: 1.6; text-align: ${mostrarEstado ? 'left' : 'center'};">${mensaje}</p>
+          <p style="font-weight: bold; color: #f57c00; margin-top: 40px; margin-bottom: 10px;">Apertura de datos...</p>
+          <div style="width: 100%; background-color: #e0e0e0; border-radius: 10px; overflow: hidden; height: 20px;">
+            <div id="progress-bar-validation" style="width: 0%; height: 100%; background: linear-gradient(90deg, #4CAF50, #8BC34A); transition: width 0.1s linear;"></div>
+          </div>
+        </div>
+      `;
 
-      setTimeout(() => {
-        notificacionContainer.classList.remove('visible');
-        setTimeout(() => {
-          notificacionContainer.style.display = 'none';
-          processValidationResponse(response);
-        }, 300);
-      }, 5000);
+      // Animar barra de progreso
+      let progress = 0;
+      const progressBar = document.getElementById('progress-bar-validation');
+      const interval = setInterval(() => {
+        progress += 1.67; // 100% en 6 segundos (60 iteraciones * 100ms)
+        if (progress >= 100) {
+          progress = 100;
+          clearInterval(interval);
+          // Después de completar, mostrar el formulario
+          setTimeout(() => {
+            processValidationResponse(response);
+          }, 300);
+        }
+        progressBar.style.width = progress + '%';
+      }, 100);
+
     } else {
       processValidationResponse(response);
     }
