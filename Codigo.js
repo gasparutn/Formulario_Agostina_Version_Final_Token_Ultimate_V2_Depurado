@@ -39,14 +39,6 @@ function doGet(e) {
   }
 }
 
-/**
- * 'doPost' ya no es necesario para el webhook de MP.
- */
-function doPost(e) {
-  Logger.log("doPost llamado pero Mercado Pago está deshabilitado.");
-  return ContentService.createTextOutput("OK");
-}
-
 // =========================================================
 // --- (FIN) FUNCIONES INTEGRADAS (FALTANTES) ---
 // =========================================================

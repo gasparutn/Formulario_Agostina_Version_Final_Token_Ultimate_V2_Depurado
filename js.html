@@ -233,7 +233,7 @@
         const loaderValidacion = document.getElementById('loader-validacion');
         if (loaderValidacion) {
           loaderValidacion.style.display = 'block';
-          loaderValidacion.querySelector('p').textContent = 'Analizando comprobante con IA... (Puede cerrar esta ventana)';
+          loaderValidacion.querySelector('p').textContent = 'Procesando comprobante...';
         }
 
         // Llamada asíncrona al OCR
@@ -551,7 +551,7 @@
       // --- (FIN CORRECCIÓN MENSAJES) ---
 
       if (response.adeudaAptitud === true) {
-        html += `<div id="aptitud-manual-seccion" style="margin-top: 15px; padding: 10px; border: 1px solid #e67e22; border-radius: 5px; background: #fdf5e6;"><h3>¡Atención!</h3><p style="text-align: center; font-weight: bold; color: #e67e22;">Adeuda Certificado de Aptitud Física</p><p>Por favor, suba el certificado para completar la ficha.</p><label for="aptitud-manual-upload" class="file-input-label" style="background-color: #e67e22;">Seleccionar Certificado</label><input type="file" id="aptitud-manual-upload" accept="image/jpeg, image/png, application/pdf"><span id="aptitud-manual-name" class="file-name">Ningún archivo seleccionado</span><button type="button" id="btn-submit-aptitud-manual" style="background-color: #e67e22; width: 100%; height:45px">Subir Certificado!!!</button><div class="loader" id="loader-aptitud" style="display: none;"><div class="spinner"></div><p>Subiendo...</p></div></div>`;
+        html += `<div id="aptitud-manual-seccion" style="margin-top: 15px; padding: 10px; border: 1px solid #e67e22; border-radius: 5px; background: #fdf5e6;"><h3>¡Atención!</h3><p style="text-align: center; font-weight: bold; color: #e67e22;">Adeuda Certificado de Aptitud Física</p><p>Por favor, suba el certificado para completar la ficha.</p><label for="aptitud-manual-upload" class="file-input-label" style="background-color: #e67e22;">Seleccionar Certificado</label><input type="file" id="aptitud-manual-upload" accept="image/jpeg, image/png, application/pdf"><span id="aptitud-manual-name" class="file-name">Ningún archivo seleccionado</span><button type="button" id="btn-submit-aptitud-manual" style="background-color: #e67e22; width: 100%; height:45px">Subir Certificado!!!</button><div id="progress-container-aptitud" style="display: none; margin-top: 10px; width: 100%; background-color: #e9ecef; border-radius: 8px; overflow: hidden;"><div id="progress-bar-aptitud" style="width: 0%; height: 25px; background-color: #007bff; border-radius: 8px; text-align: center; line-height: 25px; color: white; font-weight: bold;">0%</div></div></div>`;
       }
 
       // Decidir si mostrar la sección de comprobantes basándonos en datos autoritativos
@@ -615,7 +615,7 @@
                 </div>
                 <div class="checkbox-option">
                   <input type="checkbox" id="subMetodoTransferencia" name="subMetodoCuotasComprobante" value="Transferencia">
-                  <label for="subMetodoTransferencia">b) Pagué con Transferencia(Bancaria, MP,etc.)</label>
+                  <label for="subMetodoTransferencia">b) Pagué con Transferencia Bancaria</label>
                 </div>
               </div>
 
@@ -1631,80 +1631,99 @@
     const fileInput = document.getElementById('aptitud-manual-upload');
     const file = fileInput.files[0];
     const dni = document.getElementById('dni-input').value;
-    const loader = document.getElementById('loader-aptitud');
+    const progressContainer = document.getElementById('progress-container-aptitud');
+    const progressBar = document.getElementById('progress-bar-aptitud');
+    const nombreLabel = document.getElementById('aptitud-manual-name');
 
     if (!file) {
-      loader.innerHTML = `<div class="mensaje error" style="margin-bottom:0; background-color: #f8d7da; color: #721c24;">Tenes que adjuntar un certificado.</div>`;
-      loader.style.display = 'block';
+      alert('Debe seleccionar un archivo para subir.');
       return;
     }
 
     const btn = document.getElementById('btn-submit-aptitud-manual');
     btn.disabled = true;
-    loader.innerHTML = `<div class="spinner"></div><p>Subiendo...</p>`;
-    loader.style.display = 'block';
 
-    comprimirYLeerArchivo(file).then(fileData => { // Llama a js2.html
-      google.script.run
-        .withSuccessHandler(function (response) {
-          loader.style.display = 'none';
-          if (response.status === 'OK') {
+    // Mostrar barra de progreso
+    if (progressContainer && progressBar) {
+      progressContainer.style.display = 'block';
+      progressBar.style.width = '0%';
+      progressBar.textContent = '0%';
+      progressBar.style.backgroundColor = '#007bff';
 
-            // =========================================================
-            // --- ¡INICIO DE LA MODIFICACIÓN (RE-VALIDACIÓN)! ---
-            // =========================================================
-            // En lugar de solo mostrar un mensaje, forzamos una
-            // re-validación para que handleValidationSuccess
-            // pueda verificar si el formulario está 100% completo.
+      // Animar progreso
+      let progress = 0;
+      const progressInterval = setInterval(() => {
+        progress += 5;
+        if (progress < 95) {
+          progressBar.style.width = progress + '%';
+          progressBar.textContent = progress + '%';
+        } else {
+          clearInterval(progressInterval);
+        }
+      }, 150);
 
-            const statusDiv = document.getElementById('status-validacion');
-            // Limpiar mensajes antiguos (excepto el de aptitud que se va a recargar)
-            statusDiv.querySelectorAll('.mensaje').forEach(el => {
-              if (el.closest && !el.closest('#aptitud-manual-seccion')) {
-                el.remove();
-              } else if (!el.closest) {
-                el.remove();
+      comprimirYLeerArchivo(file).then(fileData => {
+        google.script.run
+          .withSuccessHandler(function (response) {
+            clearInterval(progressInterval);
+            if (response.status === 'OK') {
+              progressBar.style.width = '100%';
+              progressBar.textContent = '100%';
+              progressBar.style.backgroundColor = '#28a745';
+
+              setTimeout(() => {
+                nombreLabel.textContent = file.name + ' (✅ Subido)';
+              }, 500);
+
+              const statusDiv = document.getElementById('status-validacion');
+              statusDiv.querySelectorAll('.mensaje').forEach(el => {
+                if (el.closest && !el.closest('#aptitud-manual-seccion')) {
+                  el.remove();
+                } else if (!el.closest) {
+                  el.remove();
+                }
+              });
+
+              statusDiv.insertAdjacentHTML('afterbegin', `<div class="mensaje exito" style="margin-bottom:10px;">${response.message}</div>`);
+
+              // Mostrar loader de validación antes de re-validar
+              const loaderValidacion = document.getElementById('loader-validacion');
+              if (loaderValidacion) {
+                loaderValidacion.style.display = 'block';
+                const loaderText = loaderValidacion.querySelector('p');
+                if (loaderText) {
+                  loaderText.textContent = 'Actualizando estado...';
+                }
               }
-            });
 
-            statusDiv.insertAdjacentHTML('afterbegin', `<div class="mensaje exito" style="margin-bottom:10px;">${response.message}</div>`);
-
-            // Disparar la re-validación
-            const dni = document.getElementById('dni-input').value;
-            document.getElementById('loader-validacion').style.display = 'block';
-            document.getElementById('loader-validacion').querySelector('p').textContent = 'Actualizando estado...';
-
-            google.script.run
-              .withSuccessHandler(handleValidationSuccess) // Llama al handler principal
-              .withFailureHandler(handleValidationFailure)
-              .validarAcceso(dni);
-            // =========================================================
-            // --- FIN DE LA MODIFICACIÓN ---
-            // =========================================================
-
-          } else {
-            alert("Error al subir: " + response.message);
+              window.isSilentRefresh = true;
+              google.script.run
+                .withSuccessHandler(handleValidationSuccess)
+                .withFailureHandler(function (err) {
+                  console.error('Error en re-validación:', err);
+                  window.isSilentRefresh = false;
+                  if (loaderValidacion) loaderValidacion.style.display = 'none';
+                })
+                .validarAcceso(dni);
+            } else {
+              progressContainer.style.display = 'none';
+              alert('Error: ' + response.message);
+              btn.disabled = false;
+            }
+          })
+          .withFailureHandler(function (error) {
+            clearInterval(progressInterval);
+            progressContainer.style.display = 'none';
+            alert('❌ Error de conexión: ' + error.message);
             btn.disabled = false;
-          }
-        })
-        .withFailureHandler(function (error) {
-          loader.style.display = 'none';
-          // =========================================================
-          // --- ¡AQUÍ ESTÁ LA CORRECCIÓN! ---
-          // Se eliminó la 'D' que causaba el error de sintaxis.
-          // =========================================================
-          alert("Error de conexión: " + error.message);
-          // =========================================================
-          // --- FIN DE LA CORRECCIÓN ---
-          // =========================================================
-          btn.disabled = false;
-        })
-        .subirAptitudManual(dni, fileData);
-    }).catch(err => {
-      loader.style.display = 'none';
-      alert("Error al procesar archivo: " + err.message);
-      btn.disabled = false;
-    });
+          })
+          .subirAptitudManual(dni, fileData);
+      }).catch(err => {
+        alert('Error al procesar el archivo: ' + err.message);
+        btn.disabled = false;
+        progressContainer.style.display = 'none';
+      });
+    }
   }
 
   /**
@@ -1793,7 +1812,7 @@
         const loaderValidacion = document.getElementById('loader-validacion');
         if (loaderValidacion) {
           loaderValidacion.style.display = 'block';
-          loaderValidacion.querySelector('p').textContent = 'Analizando comprobante con IA... (Puede cerrar esta ventana)';
+          loaderValidacion.querySelector('p').textContent = 'Procesando comprobante...';
         }
 
         // Llamada asíncrona al OCR
@@ -1935,12 +1954,6 @@
       if (document.getElementById('jornada-cupo-msg')) {
         document.getElementById('jornada-cupo-msg').style.display = 'inline';
       }
-    }
-
-    const opcionPagoTotal = document.querySelector('#metodoPago option[value="Pago 1 Cuota Deb/Cred MP(Total)"]');
-    if (opcionPagoTotal) {
-      opcionPagoTotal.style.display = 'none';
-      opcionPagoTotal.disabled = true;
     }
 
     // =========================================================

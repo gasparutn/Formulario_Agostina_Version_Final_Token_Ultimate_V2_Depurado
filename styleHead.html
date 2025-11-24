@@ -12,30 +12,38 @@
     margin-top: 10px;
   }
 
-  /* (Punto 5) Estilo para los campos dinámicos */
+  ////////////////////////////////////////////////
   .grupo-telefono {
     display: flex;
+    flex-wrap: nowrap;
+    /* ❗ evita que se vayan a segunda línea */
     gap: 10px;
     align-items: center;
-    margin-bottom: 5px;
+    margin-bottom: 8px;
   }
 
-  .grupo-telefono .telefono-area-code {
-    width: 90px;
-    /* Ancho fijo para ~6 dígitos */
-    flex-shrink: 0;
-    /* No permitir que se encoja */
-    margin-bottom: 0;
-    /* Anular margen inferior */
+  .grupo-telefono input {
+    font-size: 1rem;
+    padding: 6px 10px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    box-sizing: border-box;
+    height: 40px;
+    font-family: 'Segoe UI', sans-serif;
   }
 
-  .grupo-telefono .telefono-numero {
-    flex: 1;
-    /* Ocupar todo el espacio restante */
-    margin-bottom: 0;
-    /* Anular margen inferior */
+  .telefono-area-code {
+    flex: 0 0 auto;
+    width: 8ch;
+    max-width: 140px;
   }
 
+  ..telefono-numero {
+  width: 72%;        /* más chico que antes */
+  flex: 0 0 auto;
+}
+
+  ////////////////////////////////////////////////////////
   /* (Punto 5) Estilos para Hermanos */
   #hermanos-container .fila-dinamica {
     background-color: #f9f9f9;

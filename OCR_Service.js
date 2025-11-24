@@ -6,13 +6,27 @@
  */
 function analizarComprobanteIA(fileId, precioEsperado) {
     Logger.log(`[Gemini] Iniciando análisis para FileID: ${fileId}, Esperado: ${precioEsperado}`);
+    Logger.log(`[Gemini] Usando Modelo: ${GEMINI_MODEL}`);
 
     try {
         // 1. Obtener el archivo de Drive
         const file = DriveApp.getFileById(fileId);
         const mimeType = file.getMimeType();
         const blob = file.getBlob();
+        const fileSize = blob.getBytes().length;
+
+        // Validar tamaño (máximo 20MB para Gemini)
+        const MAX_SIZE = 20 * 1024 * 1024; // 20MB
+        if (fileSize > MAX_SIZE) {
+            Logger.log(`[Gemini] Archivo demasiado grande: ${fileSize} bytes (máx: ${MAX_SIZE})`);
+            return {
+                exito: false,
+                error: `Archivo demasiado grande (${Math.round(fileSize / 1024 / 1024)}MB). Máximo: 20MB`
+            };
+        }
+
         const base64Data = Utilities.base64Encode(blob.getBytes());
+        Logger.log(`[Gemini] Archivo: ${mimeType}, Tamaño: ${Math.round(fileSize / 1024)}KB`);
 
         // Validar tipo de archivo soportado por Gemini
         if (!['image/jpeg', 'image/png', 'image/webp', 'application/pdf'].includes(mimeType)) {
@@ -24,16 +38,12 @@ function analizarComprobanteIA(fileId, precioEsperado) {
 
         // 2. Construir el Prompt mejorado para detectar pagos múltiples
         const prompt = `
-      Actúa como un sistema experto de validación de pagos.
-      Analiza este comprobante de pago y extrae:
+      Analiza este comprobante de pago (transferencia bancaria).
+      El precio unitario esperado por persona es: $${precioEsperado}.
       
-      1. El monto TOTAL pagado (número sin símbolos, ej: 990000)
-      2. Cuántas personas/beneficiarios están incluidos en el pago
-      3. Los nombres de las personas si están visibles
+      Busca el monto total transferido y determina si corresponde a 1 persona o a un grupo familiar (múltiplos del precio esperado).
       
-      Monto esperado por persona: ${precioEsperado}
-      
-      Responde ÚNICAMENTE con JSON válido (sin markdown):
+      Responde EXCLUSIVAMENTE con un objeto JSON con esta estructura:
       {
         "monto_total": number,
         "cantidad_personas": number,
@@ -61,7 +71,10 @@ function analizarComprobanteIA(fileId, precioEsperado) {
                         }
                     }
                 ]
-            }]
+            }],
+            generationConfig: {
+                response_mime_type: "application/json"
+            }
         };
 
         const options = {
@@ -78,69 +91,63 @@ function analizarComprobanteIA(fileId, precioEsperado) {
 
         if (responseCode !== 200) {
             Logger.log(`[Gemini] Error API (${responseCode}): ${responseText}`);
+
+            // Logging adicional para error 400
+            if (responseCode === 400) {
+                Logger.log(`[Gemini] Detalles del error 400:`);
+                Logger.log(`  - Modelo: ${GEMINI_MODEL}`);
+                Logger.log(`  - MimeType: ${mimeType}`);
+                Logger.log(`  - Tamaño Base64: ${base64Data.length} caracteres`);
+                Logger.log(`  - URL: ${url.substring(0, 100)}...`);
+
+                try {
+                    const errorDetail = JSON.parse(responseText);
+                    Logger.log(`  - Error detallado: ${JSON.stringify(errorDetail)}`);
+                } catch (e) {
+                    Logger.log(`  - Respuesta raw: ${responseText.substring(0, 500)}`);
+                }
+            }
+
             return { exito: false, error: `Error Gemini (${responseCode})` };
         }
 
         // 5. Procesar Respuesta
         const jsonResponse = JSON.parse(responseText);
-        const candidates = jsonResponse.candidates;
 
-        if (!candidates || candidates.length === 0) {
+        // Verificar estructura de respuesta de Gemini
+        if (!jsonResponse.candidates || jsonResponse.candidates.length === 0 || !jsonResponse.candidates[0].content) {
+            Logger.log(`[Gemini] Respuesta vacía o estructura inesperada: ${responseText}`);
             return { exito: false, error: "Gemini no devolvió candidatos." };
         }
 
-        const contentText = candidates[0].content.parts[0].text;
-        Logger.log(`[Gemini] Respuesta Raw: ${contentText}`);
+        const rawText = jsonResponse.candidates[0].content.parts[0].text;
+        Logger.log(`[Gemini] Respuesta Raw: ${rawText}`);
 
-        // Limpiar y parsear el JSON devuelto por Gemini
-        const cleanJson = contentText.replace(/```json/g, '').replace(/```/g, '').trim();
-        const datos = JSON.parse(cleanJson);
+        // Limpiar bloques de código markdown si existen (```json ... ```)
+        const jsonString = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
+        const resultado = JSON.parse(jsonString);
 
-        // 6. Normalizar y validar
-        if (datos.monto_total !== null && datos.monto_total !== undefined) {
-            // Normalizar montos
-            let montoTotal = typeof datos.monto_total === 'string'
-                ? parseFloat(datos.monto_total.replace(/[^0-9.-]/g, ''))
-                : datos.monto_total;
-
-            let montoPorPersona = typeof datos.monto_por_persona === 'string'
-                ? parseFloat(datos.monto_por_persona.replace(/[^0-9.-]/g, ''))
-                : datos.monto_por_persona;
-
-            // Normalizar precio esperado (eliminar puntos como separadores de miles)
-            let precioNormalizado = typeof precioEsperado === 'string'
-                ? parseFloat(precioEsperado.replace(/\./g, '').replace(',', '.'))
-                : precioEsperado;
-
-            const cantidadPersonas = datos.cantidad_personas || 1;
-
-            // Validar coincidencia
-            const diferencia = Math.abs(montoPorPersona - precioNormalizado);
-            const coincide = diferencia <= 1;
-
-            Logger.log(`[Gemini] Total=${montoTotal}, Personas=${cantidadPersonas}, PorPersona=${montoPorPersona}, Esperado=${precioNormalizado}, Diferencia=${diferencia}, Coincide=${coincide}`);
-
-            return {
-                exito: true,
-                textoEncontrado: `$${montoPorPersona}`,
-                montoTotal: montoTotal,
-                cantidadPersonas: cantidadPersonas,
-                montoPorPersona: montoPorPersona,
-                nombresDetectados: datos.nombres_detectados || [],
-                coincidencia: coincide,
-                esPagoMultiple: cantidadPersonas > 1,
-                raw: datos
-            };
-        } else {
-            return {
-                exito: false,
-                error: "No se detectó monto",
-                raw: datos
-            };
+        // Normalizar datos numéricos (quitar separadores de miles si vienen como string)
+        if (typeof resultado.monto_total === 'string') {
+            resultado.monto_total = parseFloat(resultado.monto_total.replace(/\./g, '').replace(',', '.'));
         }
 
+        // Devolver datos crudos para que Comprobantes.js aplique la lógica de negocio
+        return {
+            exito: true, // Siempre true si Gemini respondió JSON válido
+            monto_total: resultado.monto_total,
+            cantidad_personas_detectadas: resultado.cantidad_personas || 1,
+            nombres_detectados: resultado.nombres_detectados || [],
+            moneda: resultado.moneda || "ARS",
+            observacion: resultado.observacion || "Análisis completado.",
+            raw_text: rawText
+        };
+
     } catch (e) {
-        Logger.log(`[Gemini] Excepción: ${e.toString()}`);
-        return { exito: false, error: "Error Técnico IA: " + e.message };
+        Logger.log(`[Gemini] Error CRÍTICO: ${e.toString()}`);
+        return {
+            exito: false,
+            error: `Error interno: ${e.toString()}`
+        };
     }
 }

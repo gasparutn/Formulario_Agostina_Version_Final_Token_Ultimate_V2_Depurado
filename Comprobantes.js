@@ -1144,41 +1144,80 @@ function procesarOCRAsync(fileId, fila, precioEsperado, esFamiliar, filasFamilia
       filasAActualizar = filasFamiliares;
     }
 
-    // 3. Aplicar resultados a la hoja
+    // 3. Aplicar resultados a la hoja con Lógica de Negocio
     filasAActualizar.forEach(f => {
       const celdaAL = hoja.getRange(f, COL_MONTO_A_PAGAR);
+      const precioEsperadoFila = hoja.getRange(f, COL_PRECIO).getValue();
 
-      if (resultadoIA.exito) {
-        // Leer el precio esperado de ESTA fila específica
-        const precioEsperadoFila = hoja.getRange(f, COL_PRECIO).getValue();
+      // Normalizar precio esperado
+      let precioEsperadoIndividual = typeof precioEsperadoFila === 'string'
+        ? parseFloat(precioEsperadoFila.replace(/\./g, '').replace(',', '.'))
+        : precioEsperadoFila;
 
-        // Normalizar el precio esperado de esta fila
-        let precioNormalizadoFila = typeof precioEsperadoFila === 'string'
-          ? parseFloat(precioEsperadoFila.replace(/\./g, '').replace(',', '.'))
-          : precioEsperadoFila;
+      let montoAInsertar = 0;
+      let observacionNota = "";
+      let colorFondo = "#ffffff"; // Blanco por defecto
 
-        // Comparar el monto por persona del OCR con el precio esperado de ESTA fila
-        const diferencia = Math.abs(resultadoIA.montoPorPersona - precioNormalizadoFila);
-        const coincideEstaFila = diferencia <= 1;
+      const montoTotalDetectado = resultadoIA.monto_total || 0;
 
-        Logger.log(`[OCR Async] Fila ${f}: MontoPorPersona=${resultadoIA.montoPorPersona}, PrecioEsperado=${precioNormalizadoFila}, Diferencia=${diferencia}, Coincide=${coincideEstaFila}`);
+      // CASO A: PAGO FAMILIAR (Checkbox Tildado)
+      if (esFamiliar) {
+        // Dividir el total por la cantidad de miembros de la familia (filas)
+        const cantidadMiembros = filasAActualizar.length;
+        const montoPorCabeza = montoTotalDetectado / cantidadMiembros;
 
-        // Escribir monto detectado
-        if (resultadoIA.textoEncontrado) {
-          celdaAL.setValue(resultadoIA.textoEncontrado);
-        }
+        montoAInsertar = montoPorCabeza;
+        observacionNota = `Pago Familiar Detectado.\nMonto Total: $${montoTotalDetectado}\nDividido por ${cantidadMiembros} miembros = $${montoPorCabeza} c/u.\nObservación IA: ${resultadoIA.observacion}`;
 
-        // Colorear según coincidencia INDIVIDUAL
-        if (coincideEstaFila) {
-          celdaAL.setBackground("#b6d7a8"); // Verde
+        // Validar si coincide con el esperado individual
+        if (Math.abs(montoPorCabeza - precioEsperadoIndividual) <= 100) {
+          colorFondo = "#b6d7a8"; // Verde
         } else {
-          celdaAL.setBackground("#ea9999"); // Rojo
+          colorFondo = "#fff2cc"; // Amarillo (Diferencia)
+          observacionNota += `\n⚠️ Difiere del esperado ($${precioEsperadoIndividual})`;
         }
-      } else {
-        // Fallo OCR
-        celdaAL.setBackground("#fff2cc"); // Amarillo
-        celdaAL.setValue(resultadoIA.error || "Error OCR Desconocido");
+
       }
+      // CASO B: PAGO INDIVIDUAL (Checkbox NO Tildado)
+      else {
+        // Verificar si es un múltiplo del precio esperado (posible familiar no declarado)
+        const ratio = montoTotalDetectado / precioEsperadoIndividual;
+        const esMultiplo = Math.abs(Math.round(ratio) - ratio) < 0.1 && ratio >= 1.9; // Aprox entero >= 2
+
+        if (esMultiplo) {
+          // ES UN PAGO FAMILIAR NO DECLARADO
+          // Forzamos el valor individual esperado para que "cierre" la cuenta
+          montoAInsertar = precioEsperadoIndividual;
+          colorFondo = "#b6d7a8"; // Verde (porque forzamos el valor correcto)
+          observacionNota = `⚠️ POSIBLE PAGO FAMILIAR NO DECLARADO.\nMonto Total Detectado: $${montoTotalDetectado} (aprox ${Math.round(ratio)}x).\nSe insertó el valor individual esperado ($${precioEsperadoIndividual}) para ajustar.\nObservación IA: ${resultadoIA.observacion}`;
+        } else {
+          // ES UN PAGO INDIVIDUAL NORMAL (o un monto incorrecto)
+          montoAInsertar = montoTotalDetectado;
+          observacionNota = `Pago Individual.\nMonto Detectado: $${montoTotalDetectado}\nObservación IA: ${resultadoIA.observacion}`;
+
+          if (Math.abs(montoTotalDetectado - precioEsperadoIndividual) <= 100) {
+            colorFondo = "#b6d7a8"; // Verde
+          } else {
+            colorFondo = "#ea9999"; // Rojo (Monto incorrecto)
+            observacionNota += `\n⚠️ Difiere del esperado ($${precioEsperadoIndividual})`;
+          }
+        }
+      }
+
+      // Escritura en Celda
+      if (montoAInsertar > 0) {
+        celdaAL.setValue(montoAInsertar);
+        celdaAL.setNumberFormat('$#,##0.00');
+      } else {
+        celdaAL.setValue(resultadoIA.error || "Error OCR");
+      }
+
+      // Escritura de Nota
+      celdaAL.setNote(observacionNota);
+
+      // Color de Fondo
+      celdaAL.setBackground(colorFondo);
+
     });
 
     return { status: 'OK_OCR', resultado: resultadoIA };
@@ -1188,8 +1227,8 @@ function procesarOCRAsync(fileId, fila, precioEsperado, esFamiliar, filasFamilia
     try {
       // Intentar reportar el error fatal en la celda si es posible
       const hoja = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName("Registros");
-      hoja.getRange(fila, COL_MONTO_A_PAGAR).setValue("Error Fatal OCR: " + e.message);
-      hoja.getRange(fila, COL_MONTO_A_PAGAR).setBackground("#fff2cc");
+      hoja.getRange(fila, COL_MONTO_A_PAGAR).setValue("Error Fatal: " + e.message);
+      hoja.getRange(fila, COL_MONTO_A_PAGAR).setBackground("#ea9999");
     } catch (e2) {
       Logger.log("No se pudo escribir el error en la hoja: " + e2.toString());
     }

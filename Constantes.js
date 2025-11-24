@@ -85,7 +85,6 @@ const COL_PREVENTA_FECHA_NAC = 7; // Col G
 const COL_PREVENTA_GUARDA = 9; // Col I
 
 // =========================================================
-// CONSTANTES GEMINI AI
-// =========================================================
-const GEMINI_API_KEY = "AIzaSyC_dW30ZJzaAt1dwvneSg9WSpV1HRuUHUg";
+// Configuración de Gemini API
+const GEMINI_API_KEY = "Ingrese su api_key_gemini";
 const GEMINI_MODEL = "gemini-2.5-flash";
