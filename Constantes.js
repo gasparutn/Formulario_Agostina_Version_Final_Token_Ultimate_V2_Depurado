@@ -86,5 +86,5 @@ const COL_PREVENTA_GUARDA = 9; // Col I
 
 // =========================================================
 // Configuración de Gemini API
-const GEMINI_API_KEY = "Ingrese su api_key_gemini";
+const GEMINI_API_KEY = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
 const GEMINI_MODEL = "gemini-2.5-flash";
