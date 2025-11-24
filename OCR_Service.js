@@ -55,6 +55,8 @@ function analizarComprobanteIA(fileId, precioEsperado) {
       
       Si detectas 2 o más personas, divide el monto_total por cantidad_personas.
       Si solo ves 1 persona o no hay indicios, cantidad_personas = 1.
+      
+      IMPORTANTE: El campo "observacion" debe estar escrito SIEMPRE en ESPAÑOL.
     `;
 
         // 3. Configurar la petición a Gemini API
