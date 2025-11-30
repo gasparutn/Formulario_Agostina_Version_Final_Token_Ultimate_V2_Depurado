@@ -1,7 +1,7 @@
 // Archivo: token_Editar_Formulario.gs
 // Contiene la lógica para la validación por token de un solo uso para la edición de datos.
 
-const TOKEN_EXPIRATION_MINUTES = 2; // El token expira en 2 minutos
+const TOKEN_EXPIRATION_MINUTES = 10; // El token expira en 10 minutos
 
 /**
  * Genera un token de 6 dígitos, lo guarda y lo envía por email al responsable.
@@ -103,11 +103,11 @@ function validarToken(dni, tokenIngresado) {
   const propertyKey = `token_${dniLimpio}`;
   const tokenDataString = scriptProperties.getProperty(propertyKey);
 
-  // Eliminar el token inmediatamente para que sea de un solo uso
-  scriptProperties.deleteProperty(propertyKey);
+  Logger.log(`[DEBUG] Validando token. DNI Recibido: ${dni}, DNI Limpio: ${dniLimpio}, Key: ${propertyKey}`);
+  Logger.log(`[DEBUG] Token Ingresado: '${tokenIngresado}' (Type: ${typeof tokenIngresado})`);
 
   if (!tokenDataString) {
-    Logger.log(`Intento de validación de token fallido para DNI ${dniLimpio}.`);
+    Logger.log(`[DEBUG] No se encontró token guardado para la key: ${propertyKey}`);
     return {
       status: "ERROR",
       message:
@@ -116,19 +116,26 @@ function validarToken(dni, tokenIngresado) {
   }
 
   const tokenData = JSON.parse(tokenDataString);
-  const tokenGuardado = tokenData.token;
+  const tokenGuardado = String(tokenData.token); // Asegurar string
   const timestampGuardado = tokenData.timestamp;
   const ahora = new Date().getTime();
 
+  Logger.log(`[DEBUG] Token Guardado: '${tokenGuardado}' (Type: ${typeof tokenGuardado})`);
+  Logger.log(`[DEBUG] Tiempo transcurrido: ${(ahora - timestampGuardado) / 1000} segs`);
+
+  // Normalizar token ingresado
+  const tokenIngresadoStr = String(tokenIngresado).trim();
+
   if (
-    tokenGuardado === tokenIngresado &&
+    tokenGuardado === tokenIngresadoStr &&
     ahora - timestampGuardado < TOKEN_EXPIRATION_MINUTES * 60 * 1000
   ) {
-    Logger.log(`Token validado con éxito para DNI ${dniLimpio}.`);
+    scriptProperties.deleteProperty(propertyKey); // Eliminar solo si es válido
+    Logger.log(`[DEBUG] Token validado con éxito.`);
     return { status: "OK", message: "Token correcto." };
   } else {
     Logger.log(
-      `Intento de validación de token fallido para DNI ${dniLimpio}. Token expirado o incorrecto.`
+      `[DEBUG] Validación fallida. Coincide: ${tokenGuardado === tokenIngresadoStr}, Expirado: ${ahora - timestampGuardado >= TOKEN_EXPIRATION_MINUTES * 60 * 1000}`
     );
     return {
       status: "ERROR",

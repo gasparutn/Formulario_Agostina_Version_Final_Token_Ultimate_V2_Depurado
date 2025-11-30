@@ -18,6 +18,12 @@
     <div id="validacion-seccion">
       <div class="form-section">
         <h3>Paso 1: Verificación de DNI</h3>
+        <label for="tipoInscripto">¿Es un nuevo inscripto o ya participó en la colonia anteriormente?</label>
+        <select id="tipoInscripto" name="tipoInscripto" required>
+          <option value="nuevo">Soy Nuevo Inscripto</option>
+          <option value="anterior">Soy Inscripto Anterior</option>
+          <option value="preventa">Soy Inscripto PRE-VENTA</option>
+        </select>
         <label for="dni-input">Ingrese el DNI del inscripto (sin puntos)</label>
         <input type="tel" id="dni-input" required pattern="[0-9]{8}" inputmode="numeric" maxlength="8"
           placeholder="Ej: 12345678" title="El DNI debe tener exactamente 8 dígitos numéricos.">
@@ -299,6 +305,56 @@
       </button>
     </div>
   </div>
+
+  <div id="edicion-exito-modal-backdrop"
+    style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background-color: rgba(0, 0, 0, 0.7); z-index: 9999; justify-content: center; align-items: center;">
+    <div id="edicion-exito-modal-content"
+      style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 40px 30px; border-radius: 20px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4); width: 90%; max-width: 450px; text-align: center; animation: slideIn 0.4s ease-out;">
+      <div
+        style="background-color: white; width: 80px; height: 80px; border-radius: 50%; margin: 0 auto 25px; display: flex; align-items: center; justify-content: center; box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);">
+        <svg width="50" height="50" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path
+            d="M9 12L11 14L15 10M21 12C21 16.9706 16.9706 21 12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3C16.9706 3 21 7.02944 21 12Z"
+            stroke="#4CAF50" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+      </div>
+      <h4 id="edicion-exito-modal-titulo"
+        style="color: white; font-size: 28px; margin: 0 0 15px 0; font-weight: 700; text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);">
+        ¡Cambios Guardados!</h4>
+      <p id="edicion-exito-modal-mensaje"
+        style="color: rgba(255, 255, 255, 0.95); font-size: 16px; line-height: 1.6; margin: 0 0 30px 0;">Los datos han
+        sido actualizados correctamente.</p>
+      <button type="button" id="btn-modal-edicion-volver"
+        style="background-color: white; color: #667eea; padding: 14px 32px; border: none; border-radius: 50px; cursor: pointer; font-size: 16px; font-weight: 600; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); transition: all 0.3s ease; width: 100%;">
+        Volver al Formulario Limpio
+      </button>
+    </div>
+  </div>
+
+  <style>
+    @keyframes slideIn {
+      from {
+        opacity: 0;
+        transform: translateY(-30px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    #btn-modal-edicion-volver:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+      background-color: #f8f9fa;
+    }
+
+    #btn-modal-edicion-volver:active {
+      transform: translateY(0);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    }
+  </style>
   <div id="token-seccion" style="display:none;">
     <div class="form-section">
       <h3>Paso 2: Verificación de Seguridad</h3>

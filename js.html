@@ -3,6 +3,8 @@
   window.isSilentRefresh = false;
 
   function handleValidationSuccess(response) {
+    if (response.datos) datosEdicionGlobales = response.datos;
+
     document.getElementById('btn-validar').disabled = false;
     document.getElementById('loader-validacion').style.display = 'none';
 
@@ -34,7 +36,8 @@
         const inscripto = true; // Si está en Registros Actuales, está inscripto
         const adeudaCertificado = response.adeudaAptitud === true;
         const adeudaComprobantes = response.comprobantesCompletos === false;
-        const estaCompleto = !adeudaCertificado && !adeudaComprobantes;
+        const adeudaDatosFormulario = response.formularioCompleto === false;
+        const estaCompleto = !adeudaCertificado && !adeudaComprobantes && !adeudaDatosFormulario;
 
         // Título con fondo verde flúor y negrita
         titulo = `<div style="background-color: #b6d7a8; padding: 10px; border-radius: 5px; margin-bottom: 15px;"><strong>¡Hola, ${nombre} ${apellido}!</strong></div>`;
@@ -43,27 +46,200 @@
         if (estaCompleto) {
           mensaje = `<strong>¡Felicitaciones! Tu inscripción está completa.</strong><br><br>
                      ✅ <strong>Inscripto/a:</strong> SÍ<br>
+                     ✅ <strong>Datos del Formulario:</strong> Completos<br>
                      ✅ <strong>Certificado de Aptitud Física:</strong> Presentado<br>
                      ✅ <strong>Comprobantes de Pago:</strong> Completos<br><br>
                      <strong>¡Nos vemos en la colonia!</strong>`;
         } else {
           // Mostrar estado con lo que falta
+          let camposFaltantesHTML = '';
+          if (adeudaDatosFormulario && response.camposFaltantes && response.camposFaltantes.length > 0) {
+            camposFaltantesHTML = `<br><small style="color: #d32f2f;">Campos faltantes: ${response.camposFaltantes.join(', ')}</small>`;
+          }
+
           mensaje = `<strong>Tus datos están en nuestra Base de Datos, tu situación de registro es:</strong><br><br>
                      ✅ <strong>Inscripto/a:</strong> SÍ<br>
+                     ${adeudaDatosFormulario
+              ? `❌ <strong>Datos del Formulario:</strong> INCOMPLETOS${camposFaltantesHTML}`
+              : '✅ <strong>Datos del Formulario:</strong> Completos'}<br>
                      ${adeudaCertificado
               ? '❌ <strong>Adeuda Certificado de Aptitud Física:</strong> SÍ'
               : '✅ <strong>Certificado de Aptitud Física:</strong> Presentado'}<br>
                      ${adeudaComprobantes
               ? '❌ <strong>Adeuda Comprobantes de Pago:</strong> SÍ'
               : '✅ <strong>Comprobantes de Pago:</strong> Completos'}<br><br>
-                     ${(adeudaCertificado || adeudaComprobantes)
+                     ${(adeudaCertificado || adeudaComprobantes || adeudaDatosFormulario)
               ? '<strong>Por favor, complete la documentación faltante para confirmar su inscripción.</strong>'
               : ''}`;
         }
         mostrarEstado = true;
 
-        // Crear HTML del mensaje con barra de progreso
-        const mensajeProgreso = estaCompleto ? 'Cerrando formulario...' : 'Apertura de datos...';
+
+        // Si está completo, mostrar directamente el mensaje final sin barra de progreso
+        if (estaCompleto) {
+          statusDiv.innerHTML = `
+            <div class="mensaje exito" style="background-color: #fff9c4; border: 2px solid #fbc02d; border-radius: 8px; text-align: center; padding: 30px;">
+              <h3 style="color: white; background-color: #4CAF50; padding: 15px; border-radius: 8px; margin-bottom: 20px;">✅ ¡Inscripción Completa!</h3>
+              <p style="color: #333; margin-bottom: 20px; font-size: 18px; line-height: 1.8;">
+                <strong>¡Felicitaciones!</strong><br>
+                Tu inscripción está completa y confirmada.<br>
+                ¡Nos vemos en la colonia!
+              </p>
+              <button type="button" id="btn-mostrar-editar" class="btn-editar" style="margin-top: 15px; background-color: #2196F3; color: white; padding: 12px 24px; border: none; border-radius: 5px; cursor: pointer; font-size: 16px;">
+                Editar Datos
+              </button>
+            </div>
+            
+            <div id="token-flow-container" style="margin-top: 15px;"></div>
+            
+            <!-- Formulario de Edición Oculto (Necesario para que mostrarFormEdicion funcione) -->
+            <div id="editar-form-container" style="display: none; text-align: left; margin-top: 20px;">
+                <div class="edit-header">
+                  <h3>Editando Datos</h3>
+                  <div id="edit-timer"></div>
+                </div>
+                <p>Modifique solo los campos necesarios. Los campos de DNI e Email del inscripto no se pueden cambiar.</p>
+                
+                <div class="edit-grid">
+                  <div class="edit-grid-item">
+                    <label for="edit-dni">DNI Inscripto (Bloqueado)</label>
+                    <input type="text" id="edit-dni" readonly class="campo-bloqueado">
+                  </div>
+                  <div class="edit-grid-item">
+                    <label for="edit-email">Email (Bloqueado)</label>
+                    <input type="email" id="edit-email" readonly class="campo-bloqueado">
+                  </div>
+
+                  <div class="edit-grid-item-group">
+                    <div class="edit-grid-item">
+                      <label for="edit-adultoResponsable1">Adulto Responsable 1</label>
+                      <input type="text" id="edit-adultoResponsable1" class="form-cache">
+                    </div>
+                    <div class="edit-grid-item">
+                      <label for="edit-dniResponsable1">DNI Responsable 1</label>
+                      <input type="tel" id="edit-dniResponsable1" class="form-cache" maxlength="8" pattern="[0-9]{8}">
+                    </div>
+                    <div class="edit-grid-item">
+                      <label>Tel. Responsable 1</label>
+                      <div class="telefono-container">
+                        <input type="tel" id="edit-telAreaResp1" placeholder="Cod. Área (sin 0)" pattern="^[1-9][0-9]{1,4}$" title="Cod. Área sin 0">
+                        <input type="tel" id="edit-telNumResp1" placeholder="Número (sin 15)" pattern="^[0-9]{6,10}$" title="Número sin 15">
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="edit-grid-item-group">
+                    <div class="edit-grid-item">
+                      <label for="edit-adultoResponsable2">Adulto Responsable 2 (Opcional)</label>
+                      <input type="text" id="edit-adultoResponsable2" class="form-cache">
+                    </div>
+                    <div class="edit-grid-item">
+                      <label for="edit-dniResponsable2">DNI Responsable 2 (Opcional)</label>
+                      <input type="tel" id="edit-dniResponsable2" class="form-cache" maxlength="8" pattern="[0-9]{8}">
+                    </div>
+                    <div class="edit-grid-item">
+                       <label>Tel. Responsable 2 (Opcional)</label>
+                       <div class="telefono-container">
+                         <input type="tel" id="edit-telAreaResp2" placeholder="Cod. Área (sin 0)">
+                         <input type="tel" id="edit-telNumResp2" placeholder="Número (sin 15)">
+                       </div>
+                    </div>
+                  </div>
+                </div>
+
+                <hr>
+                <h4>Datos de Salud</h4>
+                <div class="form-section-vertical">
+                    <div class="form-group">
+                      <label>¿Practica algún deporte?</label>
+                      <div class="radio-group">
+                        <input type="radio" id="edit-practicaDeporte-si" name="edit-practicaDeporte" value="Sí"><label for="edit-practicaDeporte-si">Sí</label>
+                        <input type="radio" id="edit-practicaDeporte-no" name="edit-practicaDeporte" value="No"><label for="edit-practicaDeporte-no">No</label>
+                      </div>
+                    </div>
+                    <div class="form-group" id="edit-especifiqueDeporte-container" style="display:none;">
+                      <label for="edit-especifiqueDeporte">¿Cuál?</label>
+                      <input type="text" id="edit-especifiqueDeporte">
+                    </div>
+
+                    <div class="form-group">
+                      <label>¿Padece alguna enfermedad?</label>
+                      <div class="radio-group">
+                        <input type="radio" id="edit-tieneEnfermedad-si" name="edit-tieneEnfermedad" value="Sí"><label for="edit-tieneEnfermedad-si">Sí</label>
+                        <input type="radio" id="edit-tieneEnfermedad-no" name="edit-tieneEnfermedad" value="No"><label for="edit-tieneEnfermedad-no">No</label>
+                      </div>
+                    </div>
+                    <div class="form-group" id="edit-especifiqueEnfermedad-container" style="display:none;">
+                      <label for="edit-especifiqueEnfermedad">¿Cuál?</label>
+                      <input type="text" id="edit-especifiqueEnfermedad">
+                    </div>
+
+                    <div class="form-group">
+                      <label>¿Es alérgico/a?</label>
+                      <div class="radio-group">
+                        <input type="radio" id="edit-esAlergico-si" name="edit-esAlergico" value="Sí"><label for="edit-esAlergico-si">Sí</label>
+                        <input type="radio" id="edit-esAlergico-no" name="edit-esAlergico" value="No"><label for="edit-esAlergico-no">No</label>
+                      </div>
+                    </div>
+                    <div class="form-group" id="edit-especifiqueAlergia-container" style="display:none;">
+                      <label for="edit-especifiqueAlergia">¿A qué?</label>
+                      <input type="text" id="edit-especifiqueAlergia">
+                    </div>
+                </div>
+
+                <hr>
+                <h4>Personas Autorizadas a Retirar</h4>
+                <div id="edit-autorizados-container"></div>
+                <button type="button" id="btn-edit-add-autorizado" class="btn-dinamico" style="width: auto;">+ Agregar Autorizado</button>
+
+                <hr>
+                <h4>Certificado de Aptitud</h4>
+                <label for="edit-aptitud-upload">Reemplazar Certificado (Opcional)</label>
+                <p style="font-size: 0.9em; margin-bottom: 10px;">(Solo seleccione un archivo si desea reemplazar el existente o subir uno nuevo).</p>
+                <input type="file" id="edit-aptitud-upload" accept="image/jpeg, image/png, application/pdf">
+                <label for="edit-aptitud-upload" class="file-input-label">Seleccionar Nuevo Certificado</label>
+                <span id="edit-aptitud-name" class="file-name">Ningún archivo seleccionado</span>
+                <div class="loader-archivo" id="loader-edit-aptitud"></div>
+                <input type="hidden" id="edit-urlCertificadoAptitud">
+
+                <div class="edit-form-actions">
+                  <button type="button" id="btn-guardar-cambios" class="btn-principal">Guardar Cambios</button>
+                  <button type="button" id="btn-cancelar-edicion" class="btn-secundario">Cancelar</button>
+                </div>
+              </div>
+          `;
+          // Activar el botón de editar
+          const btnEditar = statusDiv.querySelector('#btn-mostrar-editar');
+          if (btnEditar) {
+            btnEditar.addEventListener('click', solicitarTokenParaEditar);
+          }
+
+          // Activar event listeners para los botones dentro del formulario de edición
+          const btnGuardarCambios = statusDiv.querySelector('#btn-guardar-cambios');
+          if (btnGuardarCambios) {
+            btnGuardarCambios.addEventListener('click', guardarCambiosEdicion);
+          }
+
+          const btnCancelarEdicion = statusDiv.querySelector('#btn-cancelar-edicion');
+          if (btnCancelarEdicion) {
+            btnCancelarEdicion.addEventListener('click', ocultarFormEdicion);
+          }
+
+          const btnAddAutorizado = statusDiv.querySelector('#btn-edit-add-autorizado');
+          if (btnAddAutorizado) {
+            btnAddAutorizado.addEventListener('click', function () { addAutorizadoCamposEdicion(); });
+          }
+
+          const editAptitudUpload = statusDiv.querySelector('#edit-aptitud-upload');
+          if (editAptitudUpload) {
+            editAptitudUpload.addEventListener('change', manejarSubidaAptitudEdicion);
+          }
+
+          return;
+        }
+
+        // Crear HTML del mensaje con barra de progreso (Solo si NO está completo)
+        const mensajeProgreso = 'Apertura de datos...';
 
         statusDiv.innerHTML = `
           <div class="mensaje exito" style="background-color: #fff9c4; border: 2px solid #fbc02d; border-radius: 8px; text-align: center; padding: 20px;">
@@ -86,22 +262,8 @@
             clearInterval(interval);
             // Después de completar
             setTimeout(() => {
-              if (estaCompleto) {
-                // Si está completo, mostrar mensaje final sin botón
-                statusDiv.innerHTML = `
-                  <div class="mensaje exito" style="background-color: #fff9c4; border: 2px solid #fbc02d; border-radius: 8px; text-align: center; padding: 30px;">
-                    <h3 style="color: white; background-color: #4CAF50; padding: 15px; border-radius: 8px; margin-bottom: 20px;">✅ ¡Inscripción Completa!</h3>
-                    <p style="color: #333; margin-bottom: 20px; font-size: 18px; line-height: 1.8;">
-                      <strong>¡Felicitaciones!</strong><br>
-                      Tu inscripción está completa y confirmada.<br>
-                      ¡Nos vemos en la colonia!
-                    </p>
-                  </div>
-                `;
-              } else {
-                // Si falta algo, mostrar el formulario
-                processValidationResponse(response);
-              }
+              // Si falta algo, mostrar el formulario
+              processValidationResponse(response);
             }, 300);
           }
           progressBar.style.width = progress + '%';
@@ -182,7 +344,68 @@
     }
   }
 
-  // ... (resto del código) ...
+  function processValidationResponse(response) {
+    const statusDiv = document.getElementById('status-validacion');
+
+    console.log('Processing validation response:', response);
+
+    if (!response || !response.status) {
+      statusDiv.innerHTML = `<div class="mensaje error">Error: Respuesta inválida del servidor.</div>`;
+      return;
+    }
+
+    // CASO 1: Registro encontrado - mostrar formulario de comprobantes/apt itud
+    if (response.status === 'REGISTRO_ENCONTRADO') {
+      displayRegistroEncontrado(response);
+      return;
+    }
+
+
+    // CASO 2: Pre-venta - mostrar formulario completo
+    if (response.status === 'OK_PREVENTA') {
+      statusDiv.innerHTML = `<div class="mensaje exito">${response.message}</div>`;
+      mostrarFormulario(response);
+      return;
+    }
+
+    // CASO 3: DNI nuevo - mostrar formulario completo
+    if (response.status.startsWith('OK_NUEVO') || response.status === 'HERMANO_COMPLETAR') {
+      statusDiv.innerHTML = `<div class="mensaje exito">${response.message || '✅ DNI validado. Complete el formulario.'}</div>`;
+      mostrarFormulario(response);
+      return;
+    }
+
+    // CASO 4: Error o denegación
+    if (response.status === 'DENEGADO' || response.status.startsWith('ERROR')) {
+      statusDiv.innerHTML = `<div class="mensaje error"><strong>Acceso Denegado:</strong> ${response.message}</div>`;
+      return;
+    }
+
+    // CASO DEFAULT: mostrar mensaje
+    statusDiv.innerHTML = `<div class="mensaje aviso">${response.message || 'Validación completada.'}</div>`;
+  }
+
+  function displayRegistroEncontrado(response) {
+    const statusDiv = document.getElementById('status-validacion');
+
+    // Mostrar section de comprobantes si falta algo
+    if (response.adeudaAptitud || !response.comprobantesCompletos) {
+      document.getElementById('comprobante-manual-seccion').style.display = 'block';
+      document.getElementById('btn-finalizar-upload').style.display = 'block';
+      document.getElementById('btn-mostrar-editar').style.display = 'block';
+
+      // Mensaje de bienvenida
+      statusDiv.innerHTML = `<div class="mensaje exito">¡Bienvenido/a de nuevo! Complete los datos faltantes.</div>`;
+    } else {
+      // Todo completo
+      statusDiv.innerHTML = `<div class="mensaje exito"><strong>¡Felicitaciones!</strong><br>Tu inscripción está completa.<br>¡Nos vemos en la colonia!</div>`;
+    }
+
+    // Mostrar datos del registro (aquí iría el HTML de comprobantes, apt itud, etc)
+    // ... (código existente para mostrar comprobantes)
+  }
+
+  // ... (resto del código)...
 
   function handleComprobanteUploadSuccess(response) {
     const statusDiv = document.getElementById('status-validacion');
@@ -243,6 +466,7 @@
 
             // Una vez terminado el OCR, refrescamos la validación para mostrar los colores
             const dni = document.getElementById('dni-input').value;
+            const tipoInscripto = document.getElementById('tipoInscripto').value;
 
             // Usamos un wrapper para asegurar que el flag se mantenga
             window.isSilentRefresh = true;
@@ -252,19 +476,20 @@
                 handleValidationSuccess(resp);
               })
               .withFailureHandler(handleValidationFailure)
-              .validarAcceso(dni);
+              .validarAcceso(dni, tipoInscripto);
           })
           .withFailureHandler(function (err) {
             console.error("Error en OCR Async:", err);
             // Incluso si falla el OCR, refrescamos para mostrar el error en la celda (amarillo)
             const dni = document.getElementById('dni-input').value;
+            const tipoInscripto = document.getElementById('tipoInscripto').value;
             window.isSilentRefresh = true;
             google.script.run
               .withSuccessHandler(function (resp) {
                 window.isSilentRefresh = true;
                 handleValidationSuccess(resp);
               })
-              .validarAcceso(dni);
+              .validarAcceso(dni, tipoInscripto);
           })
           .procesarOCRAsync(response.fileId, response.fila, response.precioEsperado, response.esFamiliar, response.filasFamiliares);
       } else {
@@ -272,6 +497,7 @@
         // Si no hay OCR (ej. no se requería), refrescamos directo
         setTimeout(() => {
           const dni = document.getElementById('dni-input').value;
+          const tipoInscripto = document.getElementById('tipoInscripto').value;
           window.isSilentRefresh = true;
           google.script.run
             .withSuccessHandler(function (resp) {
@@ -279,7 +505,7 @@
               handleValidationSuccess(resp);
             })
             .withFailureHandler(handleValidationFailure)
-            .validarAcceso(dni);
+            .validarAcceso(dni, tipoInscripto);
         }, 2000);
       }
 
@@ -651,6 +877,7 @@
 
       html += `<div id="editar-info-seccion" style="margin-top: 20px;">
               <button type="button" id="btn-mostrar-editar" class="btn-editar">Editar Datos de Contacto / Salud / Autorizados</button>
+              <div id="token-flow-container" style="margin-top: 15px;"></div>
               <div id="editar-form-container" style="display: none;">
                 <div class="edit-header">
                   <h3>Editando Datos</h3>
@@ -968,6 +1195,28 @@
         // Llamada inicial para establecer el estado correcto
         actualizarEstadoPagoFamiliar();
 
+        // (Listeners para el formulario de edición inyectado)
+        // Usamos statusDiv.querySelector para asegurar que seleccionamos los elementos que acabamos de inyectar
+        const btnGuardarCambios = statusDiv.querySelector('#btn-guardar-cambios');
+        if (btnGuardarCambios) {
+          btnGuardarCambios.addEventListener('click', guardarCambiosEdicion);
+        }
+
+        const btnCancelarEdicion = statusDiv.querySelector('#btn-cancelar-edicion');
+        if (btnCancelarEdicion) {
+          btnCancelarEdicion.addEventListener('click', ocultarFormEdicion);
+        }
+
+        const btnAddAutorizado = statusDiv.querySelector('#btn-edit-add-autorizado');
+        if (btnAddAutorizado) {
+          btnAddAutorizado.addEventListener('click', function () { addAutorizadoCamposEdicion(); });
+        }
+
+        const editAptitudUpload = statusDiv.querySelector('#edit-aptitud-upload');
+        if (editAptitudUpload) {
+          editAptitudUpload.addEventListener('change', manejarSubidaAptitudEdicion);
+        }
+
         const btnSubmitComprobante = document.getElementById('btn-submit-comprobante-manual');
         if (btnSubmitComprobante) {
           btnSubmitComprobante.addEventListener('click', function () {
@@ -1156,8 +1405,27 @@
    */
   function onTokenEnviado(response) {
     const editButton = document.getElementById('btn-mostrar-editar');
-    const tokenFlowContainer = document.getElementById('token-flow-container');
-    editButton.disabled = false;
+    let tokenFlowContainer = document.getElementById('token-flow-container');
+
+    // Fallback: si no existe (caso raro), intentar buscarlo dentro de status-validacion o crearlo
+    if (!tokenFlowContainer) {
+      console.warn("token-flow-container no encontrado por ID. Buscando alternativas...");
+      const statusDiv = document.getElementById('status-validacion');
+      const editSection = document.getElementById('editar-info-seccion');
+      if (editSection) {
+        tokenFlowContainer = editSection.querySelector('#token-flow-container');
+      } else if (statusDiv) {
+        tokenFlowContainer = statusDiv.querySelector('#token-flow-container');
+      }
+    }
+
+    if (!tokenFlowContainer) {
+      alert("Error de interfaz: No se encontró el contenedor para el token.");
+      if (editButton) editButton.disabled = false;
+      return;
+    }
+
+    if (editButton) editButton.disabled = false;
 
     if (response.status === 'OK') {
       // (CORRECCIÓN DEFINITIVA) Clonar el nodo en lugar de moverlo.
@@ -1205,7 +1473,7 @@
           return;
         }
 
-        const dni = document.getElementById('dni-input').value;
+        const dni = datosEdicionGlobales.dni;
         this.disabled = true;
         tokenSeccionClone.querySelector('#loader-token').style.display = 'block';
         tokenSeccionClone.querySelector('#status-token-validacion').innerHTML = '';
@@ -1234,6 +1502,7 @@
    * Si es correcto, muestra el formulario de edición.
    */
   function onTokenValidado(response) {
+    console.log("onTokenValidado response:", response);
     const tokenClone = document.getElementById('token-seccion-clonada');
     if (tokenClone) {
       tokenClone.querySelector('#loader-token').style.display = 'none';
@@ -1241,16 +1510,20 @@
     }
 
     if (response.status === 'OK') {
+      console.log("Token OK. Iniciando transición a edición...");
       // Ocultar la sección del token y mostrar el formulario de edición
       if (window.tokenTimerInterval) {
         clearInterval(window.tokenTimerInterval);
       }
 
-      // Ocultar el contenedor de flujo de token
-      document.getElementById('token-flow-container').innerHTML = '';
-
-      mostrarFormEdicion(); // Llama a la función que prepara y muestra el form de edición
+      try {
+        mostrarFormEdicion(); // Llama a la función que prepara y muestra el form de edición
+      } catch (e) {
+        console.error("Error al mostrar formulario de edición:", e);
+        alert("Error al cargar el formulario de edición: " + e.message);
+      }
     } else {
+      console.warn("Token fallido:", response.message);
       if (tokenClone) {
         tokenClone.querySelector('#status-token-validacion').innerHTML = `<div class="mensaje error">${response.message}</div>`;
         tokenClone.querySelectorAll('.token-input').forEach(input => input.value = '');
@@ -1260,37 +1533,59 @@
   }
 
   function mostrarFormEdicion() {
+    console.log("Entrando a mostrarFormEdicion. Datos:", datosEdicionGlobales);
+
+    // (CORRECCIÓN CRÍTICA) Verificar que el formulario de edición exista en el DOM
+    const editarFormContainer = document.getElementById('editar-form-container');
+    if (!editarFormContainer) {
+      console.error("ERROR CRÍTICO: El formulario de edición no existe en el DOM.");
+      console.error("Esto significa que 'editar-info-seccion' no fue inyectado correctamente en handleValidationSuccess.");
+      alert('Error: El formulario de edición no está disponible. Por favor, recargue la página e intente nuevamente.');
+      return;
+    }
+
     iniciarTemporizadorEdicion();
 
     if (!datosEdicionGlobales) {
+      console.error("datosEdicionGlobales es null o undefined");
       alert('Error: No se cargaron los datos para editar.');
       return;
     }
 
     // --- Populate basic fields ---
-    document.getElementById('edit-dni').value = datosEdicionGlobales.dni || '';
-    document.getElementById('edit-email').value = datosEdicionGlobales.email || '';
-    document.getElementById('edit-adultoResponsable1').value = datosEdicionGlobales.adultoResponsable1 || '';
-    document.getElementById('edit-dniResponsable1').value = datosEdicionGlobales.dniResponsable1 || '';
-    document.getElementById('edit-adultoResponsable2').value = datosEdicionGlobales.adultoResponsable2 || '';
-    document.getElementById('edit-dniResponsable2').value = datosEdicionGlobales.dniResponsable2 || '';
+    const setVal = (id, val) => {
+      // (CORRECCIÓN) Usar querySelectorAll para llenar TODAS las instancias del campo (por si hay duplicados ocultos)
+      const els = document.querySelectorAll('#' + id);
+      if (els.length > 0) {
+        els.forEach(el => el.value = val || '');
+      } else {
+        console.warn(`Elemento no encontrado: ${id}`);
+      }
+    };
+
+    setVal('edit-dni', datosEdicionGlobales.dni);
+    setVal('edit-email', datosEdicionGlobales.email);
+    setVal('edit-adultoResponsable1', datosEdicionGlobales.adultoResponsable1);
+    setVal('edit-dniResponsable1', datosEdicionGlobales.dniResponsable1);
+    setVal('edit-adultoResponsable2', datosEdicionGlobales.adultoResponsable2);
+    setVal('edit-dniResponsable2', datosEdicionGlobales.dniResponsable2);
 
     // --- Populate and parse telephone numbers ---
     const telMatch1 = String(datosEdicionGlobales.telResponsable1 || '').match(/\(?(\d{2,5})\)?\s?(\d+)/);
     if (telMatch1) {
-      document.getElementById('edit-telAreaResp1').value = telMatch1[1] || '';
-      document.getElementById('edit-telNumResp1').value = telMatch1[2] || '';
+      setVal('edit-telAreaResp1', telMatch1[1]);
+      setVal('edit-telNumResp1', telMatch1[2]);
     } else {
-      document.getElementById('edit-telAreaResp1').value = '';
-      document.getElementById('edit-telNumResp1').value = '';
+      setVal('edit-telAreaResp1', '');
+      setVal('edit-telNumResp1', '');
     }
     const telMatch2 = String(datosEdicionGlobales.telResp2 || '').match(/\(?(\d{2,5})\)?\s?(\d+)/);
     if (telMatch2) {
-      document.getElementById('edit-telAreaResp2').value = telMatch2[1] || '';
-      document.getElementById('edit-telNumResp2').value = telMatch2[2] || '';
+      setVal('edit-telAreaResp2', telMatch2[1]);
+      setVal('edit-telNumResp2', telMatch2[2]);
     } else {
-      document.getElementById('edit-telAreaResp2').value = '';
-      document.getElementById('edit-telNumResp2').value = '';
+      setVal('edit-telAreaResp2', '');
+      setVal('edit-telNumResp2', '');
     }
 
     // --- Populate health fields ---
@@ -1359,8 +1654,72 @@
     document.getElementById('loader-edit-aptitud').style.display = 'none';
 
     // --- Show form ---
-    document.getElementById('editar-form-container').style.display = 'block';
-    document.getElementById('btn-mostrar-editar').style.display = 'none';
+    // Asegurar que el contenedor padre esté visible (por si estamos en el flujo de "Inscripción Completa")
+    const editarInfoSeccion = document.getElementById('editar-info-seccion');
+    console.log("editarInfoSeccion encontrado:", editarInfoSeccion);
+    if (editarInfoSeccion) {
+      editarInfoSeccion.style.display = 'block';
+      console.log("editarInfoSeccion.style.display establecido a 'block'");
+    }
+
+    // (CORRECCIÓN IMPORTANTE) NO ocultar 'status-validacion' porque 'editar-form-container' está DENTRO de él.
+    // En su lugar, ocultamos los mensajes de éxito/aviso hermanos.
+    const statusDiv = document.getElementById('status-validacion');
+    console.log("statusDiv encontrado:", statusDiv);
+    if (statusDiv) {
+      statusDiv.style.display = 'block';
+      console.log("statusDiv.style.display establecido a 'block'");
+
+      // Ocultar mensajes de éxito/aviso directos
+      const mensajes = statusDiv.querySelectorAll('.mensaje');
+      console.log("Mensajes encontrados para ocultar:", mensajes.length);
+      mensajes.forEach(m => m.style.display = 'none');
+
+      // Ocultar secciones de carga manual si existen
+      const aptitudManual = document.getElementById('aptitud-manual-seccion');
+      if (aptitudManual) {
+        aptitudManual.style.display = 'none';
+        console.log("aptitud-manual-seccion ocultado");
+      }
+
+      const comprobanteManual = document.getElementById('comprobante-manual-seccion');
+      if (comprobanteManual) {
+        comprobanteManual.style.display = 'none';
+        console.log("comprobante-manual-seccion ocultado");
+      }
+    }
+
+    console.log("Intentando mostrar editar-form-container...");
+    const formContainer = document.getElementById('editar-form-container');
+    console.log("editar-form-container encontrado:", formContainer);
+    console.log("editar-form-container offsetParent:", formContainer ? formContainer.offsetParent : 'N/A');
+    console.log("editar-form-container display actual:", formContainer ? window.getComputedStyle(formContainer).display : 'N/A');
+
+    formContainer.style.display = 'block';
+    console.log("editar-form-container.style.display establecido a 'block'");
+    console.log("editar-form-container display después de cambio:", window.getComputedStyle(formContainer).display);
+
+    // Ocultar la sección del token si está visible
+    const tokenContainer = document.getElementById('token-flow-container');
+    console.log("token-flow-container encontrado:", tokenContainer);
+    if (tokenContainer) {
+      tokenContainer.style.display = 'none';
+      console.log("token-flow-container ocultado");
+    }
+
+    // Scroll to form
+    console.log("Haciendo scroll al formulario...");
+    formContainer.scrollIntoView({ behavior: 'smooth' });
+
+    // Ocultar el botón de editar (que podría estar en el statusDiv o en editarInfoSeccion)
+    const btnEditar = document.getElementById('btn-mostrar-editar');
+    console.log("btn-mostrar-editar encontrado:", btnEditar);
+    if (btnEditar) {
+      btnEditar.style.display = 'none';
+      console.log("btn-mostrar-editar ocultado");
+    }
+
+    console.log("mostrarFormEdicion completado");
   }
 
   function toggleEditEspecifique(radioName, containerId) {
@@ -1371,12 +1730,167 @@
     }
   }
 
+  function guardarCambiosEdicion() {
+    // (CORRECCIÓN) Buscar el botón visible para cambiar su texto
+    // Y buscar el contenedor visible para leer los datos
+    const btnGuardar = Array.from(document.querySelectorAll('#btn-guardar-cambios')).find(el => el.offsetParent !== null) || document.getElementById('btn-guardar-cambios');
+
+    if (btnGuardar) {
+      btnGuardar.disabled = true;
+      btnGuardar.textContent = 'Guardando...';
+    }
+
+    // Helper para obtener valor del campo visible
+    const getVal = (id) => {
+      const els = document.querySelectorAll('#' + id);
+      for (let el of els) {
+        if (el.offsetParent !== null) return el.value; // Retorna el valor del primer elemento visible
+      }
+      return els[0] ? els[0].value : ''; // Fallback
+    };
+
+    // Helper para radio visible
+    const getRadio = (name) => {
+      const checked = document.querySelector(`input[name="${name}"]:checked`);
+      // Si hay duplicados, querySelector devuelve el primero.
+      // Si el primero está oculto pero checked, sirve igual? 
+      // Mejor buscar el visible.
+      const radios = document.querySelectorAll(`input[name="${name}"]`);
+      for (let r of radios) {
+        if (r.offsetParent !== null && r.checked) return r.value;
+      }
+      return 'No';
+    };
+
+
+    // Recopilar datos
+    const datos = {
+      dni: getVal('edit-dni'),
+      email: getVal('edit-email'),
+
+      adultoResponsable1: getVal('edit-adultoResponsable1'),
+      dniResponsable1: getVal('edit-dniResponsable1'),
+      telResponsable1: `(${getVal('edit-telAreaResp1')}) ${getVal('edit-telNumResp1')}`,
+
+      adultoResponsable2: getVal('edit-adultoResponsable2'),
+      dniResponsable2: getVal('edit-dniResponsable2'),
+      telResponsable2: `(${getVal('edit-telAreaResp2')}) ${getVal('edit-telNumResp2')}`,
+
+      practicaDeporte: getRadio('edit-practicaDeporte'),
+      especifiqueDeporte: getVal('edit-especifiqueDeporte'),
+
+      tieneEnfermedad: getRadio('edit-tieneEnfermedad'),
+      especifiqueEnfermedad: getVal('edit-especifiqueEnfermedad'),
+
+      esAlergico: getRadio('edit-esAlergico'),
+      especifiqueAlergia: getVal('edit-especifiqueAlergia'),
+
+      personasAutorizadas: Array.from(document.querySelectorAll('.edit-autorizado-item'))
+        .filter(div => div.offsetParent !== null) // Solo los visibles
+        .map(div => {
+          const inputs = div.querySelectorAll('input');
+          const nombre = inputs[0].value;
+          const dniAuth = inputs[1].value;
+          return nombre && dniAuth ? `${nombre} (DNI: ${dniAuth})` : nombre;
+        }).filter(Boolean).join(', '),
+
+      urlCertificadoAptitud: getVal('edit-urlCertificadoAptitud')
+    };
+
+    google.script.run
+      .withSuccessHandler(function (response) {
+        if (btnGuardar) {
+          btnGuardar.disabled = false;
+          btnGuardar.textContent = 'Guardar Cambios';
+        }
+
+        if (response.status === 'OK') {
+          mostrarModalEdicionExito();
+        } else {
+          mostrarModalEdicionError('Error al guardar: ' + response.message);
+        }
+      })
+      .withFailureHandler(function (error) {
+        if (btnGuardar) {
+          btnGuardar.disabled = false;
+          btnGuardar.textContent = 'Guardar Cambios';
+        }
+        mostrarModalEdicionError('Error de conexión: ' + error.message);
+      })
+      .guardarEdicion(datos);
+  }
+
+  function mostrarModalEdicionExito() {
+    const modal = document.getElementById('edicion-exito-modal-backdrop');
+    const btnVolver = document.getElementById('btn-modal-edicion-volver');
+
+    if (modal) {
+      modal.style.display = 'flex';
+
+      if (btnVolver) {
+        btnVolver.onclick = function () {
+          modal.style.display = 'none';
+          ocultarFormEdicion();
+          // Recargar la página para volver al formulario limpio
+          window.top.location.href = APP_URL;
+        };
+      }
+    }
+  }
+
+  function mostrarModalEdicionError(mensaje) {
+    // Mostrar un modal de error (similar al de éxito pero con estilo de error)
+    const modal = document.getElementById('edicion-exito-modal-backdrop');
+    const titulo = document.getElementById('edicion-exito-modal-titulo');
+    const mensajeP = document.getElementById('edicion-exito-modal-mensaje');
+    const btnVolver = document.getElementById('btn-modal-edicion-volver');
+
+    if (modal && titulo && mensajeP) {
+      titulo.textContent = '❌ Error';
+      titulo.style.color = '#d32f2f';
+      mensajeP.textContent = mensaje;
+      modal.style.display = 'flex';
+
+      if (btnVolver) {
+        btnVolver.textContent = 'Cerrar';
+        btnVolver.onclick = function () {
+          modal.style.display = 'none';
+          // Restaurar el título original
+          titulo.textContent = '✅ ¡Cambios Guardados!';
+          titulo.style.color = '';
+          mensajeP.textContent = 'Los datos han sido actualizados correctamente.';
+          btnVolver.textContent = 'Volver al Formulario Limpio';
+        };
+      }
+    }
+  }
+
   function ocultarFormEdicion() {
     // (NUEVO) Detener el temporizador de edición si el usuario cancela
     if (window.editTimerInterval) clearInterval(window.editTimerInterval);
 
     document.getElementById('editar-form-container').style.display = 'none';
-    document.getElementById('btn-mostrar-editar').style.display = 'block';
+
+    // Restaurar visibilidad del botón editar
+    const btnEditar = document.getElementById('btn-mostrar-editar');
+    if (btnEditar) btnEditar.style.display = 'block';
+
+    // Restaurar visibilidad del mensaje de status (si estábamos en "Inscripción Completa")
+    const statusDiv = document.getElementById('status-validacion');
+    if (statusDiv) {
+      statusDiv.style.display = 'block';
+      // Restaurar mensajes
+      const mensajes = statusDiv.querySelectorAll('.mensaje');
+      mensajes.forEach(m => m.style.display = 'block'); // O 'flex' según corresponda, pero block suele estar bien
+
+      // Restaurar secciones manuales
+      const aptitudManual = document.getElementById('aptitud-manual-seccion');
+      if (aptitudManual) aptitudManual.style.display = 'block';
+
+      const comprobanteManual = document.getElementById('comprobante-manual-seccion');
+      if (comprobanteManual) comprobanteManual.style.display = 'block';
+    }
+
     document.getElementById('edit-aptitud-upload').value = '';
     document.getElementById('edit-aptitud-name').textContent = 'Ningún archivo seleccionado';
     document.getElementById('edit-urlCertificadoAptitud').value = '';
@@ -1697,6 +2211,7 @@
               }
 
               window.isSilentRefresh = true;
+              const tipoInscripto = document.getElementById('tipoInscripto').value;
               google.script.run
                 .withSuccessHandler(handleValidationSuccess)
                 .withFailureHandler(function (err) {
@@ -1704,7 +2219,7 @@
                   window.isSilentRefresh = false;
                   if (loaderValidacion) loaderValidacion.style.display = 'none';
                 })
-                .validarAcceso(dni);
+                .validarAcceso(dni, tipoInscripto);
             } else {
               progressContainer.style.display = 'none';
               alert('Error: ' + response.message);
@@ -1821,26 +2336,29 @@
             console.log("OCR Finalizado:", resOCR);
             // Una vez terminado el OCR, refrescamos la validación para mostrar los colores
             const dni = document.getElementById('dni-input').value;
+            const tipoInscripto = document.getElementById('tipoInscripto').value;
             google.script.run
               .withSuccessHandler(handleValidationSuccess)
               .withFailureHandler(handleValidationFailure)
-              .validarAcceso(dni);
+              .validarAcceso(dni, tipoInscripto);
           })
           .withFailureHandler(function (err) {
             console.error("Error en OCR Async:", err);
             // Incluso si falla el OCR, refrescamos para mostrar el error en la celda (amarillo)
             const dni = document.getElementById('dni-input').value;
-            google.script.run.withSuccessHandler(handleValidationSuccess).validarAcceso(dni);
+            const tipoInscripto = document.getElementById('tipoInscripto').value;
+            google.script.run.withSuccessHandler(handleValidationSuccess).validarAcceso(dni, tipoInscripto);
           })
           .procesarOCRAsync(response.fileId, response.fila, response.precioEsperado, response.esFamiliar, response.filasFamiliares);
       } else {
         // Si no hay OCR (ej. no se requería), refrescamos directo
         setTimeout(() => {
           const dni = document.getElementById('dni-input').value;
+          const tipoInscripto = document.getElementById('tipoInscripto').value;
           google.script.run
             .withSuccessHandler(handleValidationSuccess)
             .withFailureHandler(handleValidationFailure)
-            .validarAcceso(dni);
+            .validarAcceso(dni, tipoInscripto);
         }, 2000);
       }
 
@@ -2084,6 +2602,9 @@
               setTimeout(() => {
                 nombreLabel.textContent = file.name + ' (✅ Subido)';
               }, 500);
+              setTimeout(() => {
+                if (progressContainer) progressContainer.style.display = 'none';
+              }, 1500);
             } else {
               if (loader) {
                 loader.className = 'loader-archivo exito';

@@ -793,14 +793,17 @@ function obtenerEstadoRegistro() {
   }
 }
 
-function validarAcceso(dni) {
+/**
+ * (MODIFICADO v15-CORREGIDO)
+ */
+function validarAcceso(dni, tipoInscripto) {
   try {
+    if (!dni || !/^[0-9]{8}$/.test(dni.trim()))
+      return {
+        status: "ERROR",
+        message: "El DNI debe tener exactamente 8 dígitos numéricos.",
+      };
     const dniLimpio = limpiarDNI(dni);
-    const validacionDNI = validarFormatoDni(dniLimpio);
-    if (!validacionDNI.esValido) {
-      return { status: "ERROR", message: validacionDNI.mensaje };
-    }
-
     const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
     const hojaConfig = ss.getSheetByName(NOMBRE_HOJA_CONFIG);
     if (!hojaConfig)
@@ -808,185 +811,222 @@ function validarAcceso(dni) {
         status: "ERROR",
         message: `La hoja de configuración "${NOMBRE_HOJA_CONFIG}" no fue encontrada.`,
       };
-
-    const estado = obtenerEstadoRegistro();
-
-    // 1. Búsqueda en "Registros" (ya inscripto este año)
+    const pagoTotalMPVisible = hojaConfig.getRange("B24").getValue() === true;
     const hojaRegistro = ss.getSheetByName(NOMBRE_HOJA_REGISTRO);
+
     if (hojaRegistro && hojaRegistro.getLastRow() > 1) {
       const celdaRegistro = hojaRegistro
-        .getRange(2, COL_DNI_INSCRIPTO, hojaRegistro.getLastRow() - 1, 1)
+        .getRange(2, COL_DNI_INSCRIPTO, hojaRegistro.getLastRow() - 1, 1) // Ahora J (10)
         .createTextFinder(dniLimpio)
         .matchEntireCell(true)
         .findNext();
       if (celdaRegistro) {
-        // El tipoInscripto es necesario para gestionarUsuarioYaRegistrado, lo derivamos del estado.
-        const estadoInscripto = hojaRegistro
-          .getRange(celdaRegistro.getRow(), COL_ESTADO_NUEVO_ANT)
-          .getValue();
-        let tipoInscriptoDerivado = "nuevo";
-        if (String(estadoInscripto).toLowerCase().includes("anterior"))
-          tipoInscriptoDerivado = "anterior";
-        if (String(estadoInscripto).toLowerCase().includes("pre-venta"))
-          tipoInscriptoDerivado = "preventa";
-
-        const resultadoGestion = gestionarUsuarioYaRegistrado(
+        const estado = obtenerEstadoRegistro();
+        if (estado.cierreManual)
+          return {
+            status: "CERRADO",
+            message: "El formulario se encuentra cerrado por mantenimiento.",
+          };
+        return gestionarUsuarioYaRegistrado(
           ss,
           hojaRegistro,
           celdaRegistro.getRow(),
           dniLimpio,
           estado,
-          tipoInscriptoDerivado
+          tipoInscripto,
+          pagoTotalMPVisible
         );
-        resultadoGestion.sourceDB = "Registros Actuales";
-        return resultadoGestion;
       }
     }
 
-    // Si el formulario está cerrado manualmente, y no es un usuario ya registrado, nadie más puede pasar.
-    if (estado.cierreManual) {
+    const estado = obtenerEstadoRegistro();
+    if (estado.cierreManual)
       return {
         status: "CERRADO",
         message: "El formulario se encuentra cerrado por mantenimiento.",
       };
-    }
+    if (estado.alcanzado && tipoInscripto !== "preventa")
+      return {
+        status: "LIMITE_ALCANZADO",
+        message: "Se ha alcanzado el cupo máximo para nuevos registros.",
+      };
 
-    // 2. Búsqueda Prioritaria en "PRE-VENTA"
     const hojaPreventa = ss.getSheetByName(NOMBRE_HOJA_PREVENTA);
-    if (hojaPreventa && hojaPreventa.getLastRow() > 1) {
-      const celdaPreventa = hojaPreventa
+    if (tipoInscripto === "preventa") {
+      if (!hojaPreventa)
+        return {
+          status: "ERROR",
+          message: `La hoja de configuración "${NOMBRE_HOJA_PREVENTA}" no fue encontrada.`,
+        };
+      const celdaEncontrada = hojaPreventa
         .getRange(2, COL_PREVENTA_DNI, hojaPreventa.getLastRow() - 1, 1)
         .createTextFinder(dniLimpio)
         .matchEntireCell(true)
         .findNext();
-      if (celdaPreventa) {
-        const fila = hojaPreventa
-          .getRange(celdaPreventa.getRow(), 1, 1, hojaPreventa.getLastColumn())
-          .getValues()[0];
-        const jornadaRaw = String(fila[COL_PREVENTA_GUARDA - 1] || "")
-          .trim()
-          .toLowerCase();
-        const jornada =
-          jornadaRaw.includes("si") || jornadaRaw.includes("extendida")
-            ? "Jornada Normal extendida"
-            : "Jornada Normal";
-
-        if (
-          jornada === "Jornada Normal extendida" &&
-          estado.jornadaExtendidaAlcanzada
-        ) {
-          return {
-            status: "LIMITE_EXTENDIDA",
-            message: "Su cupo Pre-Venta (Extendida) ya no está disponible.",
-          };
-        }
-
-        const fechaRaw = fila[COL_PREVENTA_FECHA_NAC - 1];
-        let fechaStr =
-          fechaRaw instanceof Date
-            ? Utilities.formatDate(
-              fechaRaw,
-              ss.getSpreadsheetTimeZone(),
-              "yyyy-MM-dd"
-            )
-            : "";
-
+      if (!celdaEncontrada)
         return {
-          status: "OK_PREVENTA",
-          sourceDB: "Pre-Venta",
-          message: "✅ DNI de Pre-Venta validado. Se cargarán sus datos.",
-          datos: {
-            dni: dniLimpio,
-            nombre: fila[COL_PREVENTA_NOMBRE - 1],
-            apellido: fila[COL_PREVENTA_APELLIDO - 1],
-            email: fila[COL_PREVENTA_EMAIL - 1],
-            fechaNacimiento: fechaStr,
-            jornada: jornada,
-            esPreventa: true,
-          },
-          jornadaExtendidaAlcanzada: estado.jornadaExtendidaAlcanzada,
-          tipoInscripto: "preventa",
+          status: "ERROR_TIPO_ANT",
+          message: `El DNI ${dniLimpio} no se encuentra en la base de datos de Pre-Venta.`,
         };
-      }
-    }
 
-    // Si se alcanzó el cupo general, y no es pre-venta, no puede continuar.
-    if (estado.alcanzado) {
+      const fila = hojaPreventa
+        .getRange(celdaEncontrada.getRow(), 1, 1, hojaPreventa.getLastColumn())
+        .getValues()[0];
+      const jornadaGuarda = String(fila[COL_PREVENTA_GUARDA - 1])
+        .trim()
+        .toLowerCase();
+      const jornadaPredefinida =
+        jornadaGuarda.includes("si") || jornadaGuarda.includes("extendida")
+          ? "Jornada Normal extendida"
+          : "Jornada Normal";
+      if (
+        jornadaPredefinida === "Jornada Normal extendida" &&
+        estado.jornadaExtendidaAlcanzada
+      )
+        return {
+          status: "LIMITE_EXTENDIDA",
+          message:
+            "Su DNI de Pre-Venta corresponde a Jornada Extendida, pero el cupo ya se ha agotado.",
+        };
+
+      const fechaNacimientoRaw = fila[COL_PREVENTA_FECHA_NAC - 1];
+      const fechaNacimientoStr =
+        fechaNacimientoRaw instanceof Date
+          ? Utilities.formatDate(
+            fechaNacimientoRaw,
+            ss.getSpreadsheetTimeZone(),
+            "yyyy-MM-dd"
+          )
+          : "";
       return {
-        status: "LIMITE_ALCANZADO",
-        message:
-          "Se ha alcanzado el cupo máximo para nuevos registros y registros anteriores.",
+        status: "OK_PREVENTA",
+        sourceDB: "Pre-Venta",
+        message: "✅ DNI de Pre-Venta validado. Se autocompletarán sus datos.",
+        datos: {
+          email: fila[COL_PREVENTA_EMAIL - 1],
+          nombre: fila[COL_PREVENTA_NOMBRE - 1],
+          apellido: fila[COL_PREVENTA_APELLIDO - 1],
+          dni: dniLimpio,
+          fechaNacimiento: fechaNacimientoStr,
+          jornada: jornadaPredefinida,
+          esPreventa: true,
+        },
+        jornadaExtendidaAlcanzada: estado.jornadaExtendidaAlcanzada,
+        tipoInscripto: tipoInscripto,
+        pagoTotalMPVisible: pagoTotalMPVisible,
       };
     }
 
-    // 3. Búsqueda en "Base de Datos" (Histórico)
     const hojaBusqueda = ss.getSheetByName(NOMBRE_HOJA_BUSQUEDA);
-    if (hojaBusqueda && hojaBusqueda.getLastRow() > 1) {
-      const celdaBusqueda = hojaBusqueda
-        .getRange(2, COL_DNI_BUSQUEDA, hojaBusqueda.getLastRow() - 1, 1)
-        .createTextFinder(dniLimpio)
-        .matchEntireCell(true)
-        .findNext();
-      if (celdaBusqueda) {
-        const fila = hojaBusqueda
-          .getRange(celdaBusqueda.getRow(), COL_HABILITADO_BUSQUEDA, 1, 10)
-          .getValues()[0];
-        if (fila[0] !== true) {
-          return {
-            status: "NO_HABILITADO",
-            message:
-              "El DNI se encuentra en la base de datos, pero no está habilitado para inscribirse este año.",
-          };
-        }
+    if (!hojaBusqueda)
+      return {
+        status: "ERROR",
+        message: `La hoja "${NOMBRE_HOJA_BUSQUEDA}" no fue encontrada.`,
+      };
+    const celdaEncontrada = hojaBusqueda
+      .getRange(2, COL_DNI_BUSQUEDA, hojaBusqueda.getLastRow() - 1, 1)
+      .createTextFinder(dniLimpio)
+      .matchEntireCell(true)
+      .findNext();
 
-        const fechaRaw =
-          fila[COL_FECHA_NACIMIENTO_BUSQUEDA - COL_HABILITADO_BUSQUEDA];
-        let fechaStr =
-          fechaRaw instanceof Date
-            ? Utilities.formatDate(
-              fechaRaw,
-              ss.getSpreadsheetTimeZone(),
-              "yyyy-MM-dd"
-            )
-            : "";
-
+    if (celdaEncontrada) {
+      if (
+        hojaPreventa &&
+        hojaPreventa.getLastRow() > 1 &&
+        hojaPreventa
+          .getRange(2, COL_PREVENTA_DNI, hojaPreventa.getLastRow() - 1, 1)
+          .createTextFinder(dniLimpio)
+          .matchEntireCell(true)
+          .findNext()
+      ) {
         return {
-          status: "OK_ANTERIOR",
-          sourceDB: "Inscriptos Anteriores",
-          datos: {
-            dni: dniLimpio,
-            nombre: fila[COL_NOMBRE_BUSQUEDA - COL_HABILITADO_BUSQUEDA],
-            apellido: fila[COL_APELLIDO_BUSQUEDA - COL_HABILITADO_BUSQUEDA],
-            fechaNacimiento: fechaStr,
-            obraSocial: String(
-              fila[COL_OBRASOCIAL_BUSQUEDA - COL_HABILITADO_BUSQUEDA] || ""
-            ),
-            colegioJardin: String(
-              fila[COL_COLEGIO_BUSQUEDA - COL_HABILITADO_BUSQUEDA] || ""
-            ),
-            adultoResponsable1: String(
-              fila[COL_RESPONSABLE_BUSQUEDA - COL_HABILITADO_BUSQUEDA] || ""
-            ),
-            esPreventa: false,
-          },
-          jornadaExtendidaAlcanzada: estado.jornadaExtendidaAlcanzada,
-          tipoInscripto: "anterior",
+          status: "ERROR_TIPO_ANT",
+          message:
+            'Usted tiene un cupo Pre-Venta. Por favor, elija la opción "Inscripto PRE-VENTA" para validar.',
         };
       }
-    }
+      if (tipoInscripto === "nuevo")
+        return {
+          status: "ERROR_TIPO_NUEVO",
+          message:
+            "El DNI se encuentra en nuestra base de datos. Por favor, seleccione 'Soy Inscripto Anterior' y valide nuevamente.",
+        };
 
-    // 4. Caso Final: El DNI no está en ninguna lista
-    return {
-      status: "OK_NUEVO",
-      sourceDB: "Nuevo Inscripto",
-      message: "✅ Nuevo ingreso validado.",
-      jornadaExtendidaAlcanzada: estado.jornadaExtendidaAlcanzada,
-      tipoInscripto: "nuevo",
-      datos: { dni: dniLimpio, esPreventa: false },
-    };
+      const fila = hojaBusqueda
+        .getRange(celdaEncontrada.getRow(), COL_HABILITADO_BUSQUEDA, 1, 10)
+        .getValues()[0];
+      if (fila[0] !== true)
+        return {
+          status: "NO_HABILITADO",
+          message:
+            "El DNI se encuentra en la base de datos, pero no está habilitado para la inscripción.",
+        };
+
+      const fechaNacimientoRaw = fila[COL_FECHA_NACIMIENTO_BUSQUEDA - COL_HABILITADO_BUSQUEDA]; // (Corregido índice)
+      const fechaNacimientoStr =
+        fechaNacimientoRaw instanceof Date
+          ? Utilities.formatDate(
+            fechaNacimientoRaw,
+            ss.getSpreadsheetTimeZone(),
+            "yyyy-MM-dd"
+          )
+          : "";
+      return {
+        status: "OK",
+        sourceDB: "Inscriptos Anteriores",
+        datos: {
+          nombre: fila[COL_NOMBRE_BUSQUEDA - COL_HABILITADO_BUSQUEDA], // (Corregido índice)
+          apellido: fila[COL_APELLIDO_BUSQUEDA - COL_HABILITADO_BUSQUEDA], // (Corregido índice)
+          dni: dniLimpio,
+          fechaNacimiento: fechaNacimientoStr,
+          obraSocial: String(fila[COL_OBRASOCIAL_BUSQUEDA - COL_HABILITADO_BUSQUEDA] || "").trim(), // (Corregido índice)
+          colegioJardin: String(fila[COL_COLEGIO_BUSQUEDA - COL_HABILITADO_BUSQUEDA] || "").trim(), // (Corregido índice)
+          adultoResponsable1: String(fila[COL_RESPONSABLE_BUSQUEDA - COL_HABILITADO_BUSQUEDA] || "").trim(), // (Corregido índice)
+          esPreventa: false,
+        },
+        edad: calcularEdadDetallada(fechaNacimientoStr),
+        jornadaExtendidaAlcanzada: estado.jornadaExtendidaAlcanzada,
+        tipoInscripto: tipoInscripto,
+        pagoTotalMPVisible: pagoTotalMPVisible,
+      };
+    } else {
+      if (
+        hojaPreventa &&
+        hojaPreventa.getLastRow() > 1 &&
+        hojaPreventa
+          .getRange(2, COL_PREVENTA_DNI, hojaPreventa.getLastRow() - 1, 1)
+          .createTextFinder(dniLimpio)
+          .matchEntireCell(true)
+          .findNext()
+      ) {
+        return {
+          status: "ERROR_TIPO_ANT",
+          message:
+            'Usted tiene un cupo Pre-Venta. Por favor, elija la opción "Inscripto PRE-VENTA" para validar.',
+        };
+      }
+      if (tipoInscripto === "anterior")
+        return {
+          status: "ERROR_TIPO_ANT",
+          message:
+            "No se encuentra en la base de datos de años anteriores. Por favor, seleccione 'Soy Nuevo Inscripto'.",
+        };
+      return {
+        status: "OK_NUEVO",
+        sourceDB: "Nuevo Inscripto",
+        message: "✅ DNI validado. Proceda al registro.",
+        jornadaExtendidaAlcanzada: estado.jornadaExtendidaAlcanzada,
+        tipoInscripto: tipoInscripto,
+        datos: { dni: dniLimpio, esPreventa: false },
+        pagoTotalMPVisible: pagoTotalMPVisible,
+      };
+    }
   } catch (e) {
-    Logger.log("Error Fatal en validarAcceso: " + e.stack);
-    return { status: "ERROR", message: "Error del sistema: " + e.message };
+    Logger.log("Error en validarAcceso: " + e.message + " Stack: " + e.stack);
+    return {
+      status: "ERROR",
+      message: "Ocurrió un error al validar el DNI. " + e.message,
+    };
   }
 }
 
@@ -1064,7 +1104,8 @@ function gestionarUsuarioYaRegistrado(
   filaRegistro,
   dniLimpio,
   estado,
-  tipoInscripto
+  tipoInscripto,
+  pagoTotalMPVisible
 ) {
   let rangoFila = hojaRegistro
     .getRange(filaRegistro, 1, 1, hojaRegistro.getLastColumn())
@@ -1197,12 +1238,14 @@ function gestionarUsuarioYaRegistrado(
 
     return {
       status: "HERMANO_COMPLETAR",
+      sourceDB: "Hermano Pre-registrado",
       message:
         `⚠️ ¡Hola ${datosCompletos.nombre}! Eres un hermano/a pre-registrado.\n` +
         `Por favor, complete/verifique TODOS los campos del formulario para obtener el cupo definitivo.`,
       datos: datosCompletos,
       jornadaExtendidaAlcanzada: estado.jornadaExtendidaAlcanzada,
       tipoInscripto: tipoInscripto,
+      pagoTotalMPVisible: pagoTotalMPVisible
     };
   }
   // --- (FIN CORRECCIÓN Error 2) ---
@@ -1500,9 +1543,43 @@ function gestionarUsuarioYaRegistrado(
     }
   }
 
+  // =========================================================
+  // Verificar si todos los campos obligatorios están completos
+  // =========================================================
+  const camposObligatorios = [
+    { col: COL_EMAIL - 1, nombre: "Email" },
+    { col: COL_NOMBRE - 1, nombre: "Nombre" },
+    { col: COL_APELLIDO - 1, nombre: "Apellido" },
+    { col: COL_FECHA_NACIMIENTO_REGISTRO - 1, nombre: "Fecha de Nacimiento" },
+    { col: COL_DNI_INSCRIPTO - 1, nombre: "DNI" },
+    { col: COL_OBRA_SOCIAL - 1, nombre: "Obra Social" },
+    { col: COL_COLEGIO_JARDIN - 1, nombre: "Colegio/Jardín" },
+    { col: COL_ADULTO_RESPONSABLE_1 - 1, nombre: "Adulto Responsable 1" },
+    { col: COL_DNI_RESPONSABLE_1 - 1, nombre: "DNI Responsable 1" },
+    { col: COL_TEL_RESPONSABLE_1 - 1, nombre: "Teléfono Responsable 1" },
+    { col: COL_PRACTICA_DEPORTE - 1, nombre: "Practica Deporte" },
+    { col: COL_TIENE_ENFERMEDAD - 1, nombre: "Tiene Enfermedad" },
+    { col: COL_ES_ALERGICO - 1, nombre: "Es Alérgico" },
+    { col: COL_FOTO_CARNET - 1, nombre: "Foto Carnet" },
+    { col: COL_JORNADA - 1, nombre: "Jornada" },
+  ];
+
+  const camposFaltantes = [];
+  for (const campo of camposObligatorios) {
+    const valor = rangoFila[campo.col];
+    if (!valor || String(valor).trim() === "") {
+      camposFaltantes.push(campo.nombre);
+    }
+  }
+
+  const formularioCompleto = camposFaltantes.length === 0;
+
   const baseResponse = {
     status: "REGISTRO_ENCONTRADO",
-    adeudaAptitud: !rangoFila[COL_APTITUD_FISICA - 1], // Y
+    sourceDB: "Registros Actuales",
+    adeudaAptitud: !rangoFila[COL_APTITUD_FISICA - 1], // Z
+    formularioCompleto: formularioCompleto, // NUEVO CAMPO
+    camposFaltantes: camposFaltantes, // NUEVO CAMPO
     metodoPago: metodoPago,
     datos: datosParaEdicion,
     tieneHermanos: tieneHermanos,
@@ -1516,6 +1593,7 @@ function gestionarUsuarioYaRegistrado(
         pagadasCountByComp >= cantidadCuotasRegistrada) ||
       Boolean(c_total),
   };
+
 
   if (
     String(estadoPago).startsWith("Pago total") ||
@@ -1912,5 +1990,73 @@ function uploadFileToDrive(data, mimeType, newFilename, dni, tipoArchivo) {
   } catch (e) {
     Logger.log("Error en uploadFileToDrive: " + e.toString());
     return { status: "ERROR", message: "Error al subir archivo: " + e.message };
+  }
+}
+
+/**
+ * Guarda los cambios realizados desde el formulario de edición.
+ * @param {Object} datos - Objeto con los datos a actualizar.
+ * @returns {Object} - Resultado de la operación.
+ */
+function guardarEdicion(datos) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const hoja = ss.getSheetByName(NOMBRE_HOJA_REGISTRO);
+
+    if (!hoja) throw new Error("No se encontró la hoja de registros.");
+
+    const dni = limpiarDNI(datos.dni);
+    if (!dni) throw new Error("DNI inválido.");
+
+    // Buscar la fila del usuario
+    const rangoDni = hoja.getRange(2, COL_DNI_INSCRIPTO, hoja.getLastRow() - 1, 1);
+    const finder = rangoDni.createTextFinder(dni).matchEntireCell(true).findNext();
+
+    if (!finder) throw new Error("No se encontró el registro para el DNI: " + dni);
+
+    const fila = finder.getRow();
+
+    // Actualizar datos
+    // Nota: Los índices de columna son 1-based.
+
+    // Adulto Responsable 1
+    hoja.getRange(fila, COL_ADULTO_RESPONSABLE_1).setValue(datos.adultoResponsable1 || "");
+    hoja.getRange(fila, COL_DNI_RESPONSABLE_1).setValue(datos.dniResponsable1 || "");
+    hoja.getRange(fila, COL_TEL_RESPONSABLE_1).setValue(datos.telResponsable1 || "");
+
+    // Adulto Responsable 2
+    hoja.getRange(fila, COL_ADULTO_RESPONSABLE_2).setValue(datos.adultoResponsable2 || "");
+    hoja.getRange(fila, COL_DNI_RESPONSABLE_2).setValue(datos.dniResponsable2 || "");
+    hoja.getRange(fila, COL_TEL_RESPONSABLE_2).setValue(datos.telResponsable2 || "");
+
+    // Salud
+    hoja.getRange(fila, COL_PRACTICA_DEPORTE).setValue(datos.practicaDeporte || "No");
+    hoja.getRange(fila, COL_ESPECIFIQUE_DEPORTE).setValue(datos.especifiqueDeporte || "");
+
+    hoja.getRange(fila, COL_TIENE_ENFERMEDAD).setValue(datos.tieneEnfermedad || "No");
+    hoja.getRange(fila, COL_ESPECIFIQUE_ENFERMEDAD).setValue(datos.especifiqueEnfermedad || "");
+
+    hoja.getRange(fila, COL_ES_ALERGICO).setValue(datos.esAlergico || "No");
+    hoja.getRange(fila, COL_ESPECIFIQUE_ALERGIA).setValue(datos.especifiqueAlergia || "");
+
+    // Autorizados
+    hoja.getRange(fila, COL_PERSONAS_AUTORIZADAS).setValue(datos.personasAutorizadas || "");
+
+    // Certificado de Aptitud
+    if (datos.urlCertificadoAptitud && datos.urlCertificadoAptitud.startsWith("http")) {
+      const formula = `=HYPERLINK("${datos.urlCertificadoAptitud}"; "Ver Certificado")`;
+      hoja.getRange(fila, COL_APTITUD_FISICA).setValue(formula);
+    }
+
+    return { status: "OK", message: "Datos actualizados correctamente." };
+
+  } catch (e) {
+    Logger.log("Error en guardarEdicion: " + e.message);
+    return { status: "ERROR", message: "Error al guardar: " + e.message };
+  } finally {
+    lock.releaseLock();
   }
 }

@@ -16,6 +16,7 @@
 
     document.getElementById('btn-validar').addEventListener('click', function () {
       const dni = document.getElementById('dni-input').value;
+      const tipoInscripto = document.getElementById('tipoInscripto').value;
       if (!dni) {
         document.getElementById('status-validacion').innerHTML = '<div class="mensaje error">Por favor, ingrese un DNI.</div>';
         return;
@@ -30,7 +31,7 @@
       google.script.run
         .withSuccessHandler(handleValidationSuccess)
         .withFailureHandler(handleValidationFailure)
-        .validarAcceso(dni);
+        .validarAcceso(dni, tipoInscripto);
     });
 
     document.getElementById('fotoCarnet').addEventListener('change', function () {
@@ -442,10 +443,11 @@
       // 4. Llamar a la validación directamente
       // (Usamos un pequeño timeout para asegurar que la UI se actualice)
       setTimeout(() => {
+        const tipoInscripto = document.getElementById('tipoInscripto').value;
         google.script.run
           .withSuccessHandler(handleValidationSuccess)
           .withFailureHandler(handleValidationFailure)
-          .validarAcceso(autoDNI);
+          .validarAcceso(autoDNI, tipoInscripto);
       }, 500); // 500ms
 
     } else {
